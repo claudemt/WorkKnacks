@@ -1,0 +1,32 @@
+# 密钥
+config/.env.local
+config/.env
+config/wemeet_cookies.json
+
+# 进度缓存
+*.progress.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+
+# 临时缓存
+.cache/
+.pytest_cache/
+*.log
+.workknacks/
+
+# 个人数据
+config/records_list.json
+
+# 测试临时产物
+/test_*.py
+/test_*.tex
+/test_*.md
