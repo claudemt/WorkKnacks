@@ -6,9 +6,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Iterable
 
+from .project_paths import ProjectPaths
+
 
 WORK_DIR_NAME = '.workknacks'
-PROCESSING_CATEGORIES = ('translate', 'transcribe', 'parse')
+PROCESSING_CATEGORIES = ('translate', 'parse')
 DOCUMENT_EXTENSIONS = {
     '.md', '.txt', '.tex', '.srt', '.vtt', '.pdf', '.doc', '.docx',
     '.ppt', '.pptx', '.xls', '.xlsx', '.csv', '.json', '.png', '.jpg',
@@ -21,15 +23,19 @@ def _now() -> str:
 
 
 class ProjectWorkspace:
-    """A local project folder plus its private WorkKnacks bookkeeping."""
+    
 
     def __init__(self, root: str | os.PathLike[str]):
         self.root = Path(root).expanduser().resolve()
-        self.internal_dir = self.root / WORK_DIR_NAME
-        self.state_path = self.internal_dir / 'state.json'
-        self.progress_path = self.internal_dir / 'progress.json'
-        self.usage_path = self.internal_dir / 'usage.json'
-        self.ai_log_dir = self.internal_dir / 'ai-logs'
+        self.paths = ProjectPaths.for_root(self.root)
+        self.internal_dir = self.paths.internal
+        self.state_path = self.paths.state / 'workspace.json'
+        self.progress_path = self.paths.state / 'progress.json'
+        self.usage_path = self.paths.state / 'usage.json'
+        self.index_path = self.paths.index
+        self.agent_config_path = self.paths.agent_config
+        self.session_dir = self.paths.sessions
+        self.backup_dir = self.paths.backups
         self.state = self._load_state()
 
     def ensure(self) -> 'ProjectWorkspace':
@@ -37,8 +43,7 @@ class ProjectWorkspace:
             self.root.mkdir(parents=True)
         if not self.root.is_dir():
             raise NotADirectoryError(str(self.root))
-        self.internal_dir.mkdir(parents=True, exist_ok=True)
-        self.ai_log_dir.mkdir(parents=True, exist_ok=True)
+        self.paths.ensure()
         if not self.state_path.exists():
             self.save()
         return self
@@ -52,7 +57,8 @@ class ProjectWorkspace:
             return self._new_state()
         if not isinstance(data, dict):
             return self._new_state()
-        data.setdefault('version', 1)
+        if int(data.get('version') or 0) != 3:
+            return self._new_state()
         data.setdefault('project_path', str(self.root))
         data.setdefault('updated_at', _now())
         data.setdefault('files', {})
@@ -60,7 +66,7 @@ class ProjectWorkspace:
 
     def _new_state(self) -> dict:
         return {
-            'version': 1,
+            'version': 3,
             'project_path': str(self.root),
             'updated_at': _now(),
             'files': {},
@@ -78,7 +84,7 @@ class ProjectWorkspace:
         temp_path.replace(self.state_path)
 
     def ensure_dir(self) -> None:
-        self.internal_dir.mkdir(parents=True, exist_ok=True)
+        self.paths.ensure()
 
     def relative_path(self, path: str | os.PathLike[str]) -> str:
         return Path(os.path.relpath(Path(path).resolve(), self.root)).as_posix()
@@ -112,15 +118,11 @@ class ProjectWorkspace:
         return sorted(documents, key=lambda item: (item.name.lower(), str(item).lower()))
 
     def list_dir(self, relative: str = '') -> tuple[list[Path], list[Path]]:
-        """列出 relative 目录下的子文件夹与文档文件（不递归）。
-
-        用于资源管理器式导航；跳过 .workknacks、隐藏项和已记录的处理结果。
-        """
+        
 
         base = self.root if not relative else (self.root / relative)
         if not base.is_dir():
             return [], []
-        generated = self._generated_outputs()
         folders, docs = [], []
         for child in sorted(base.iterdir(),
                             key=lambda p: (p.is_file(), p.name.lower())):
@@ -129,19 +131,23 @@ class ProjectWorkspace:
                 continue
             if child.is_dir():
                 folders.append(child)
-            elif (child.is_file()
-                  and child.suffix.lower() in DOCUMENT_EXTENSIONS
-                  and child.resolve() not in generated):
+            elif child.is_file() and child.suffix.lower() in DOCUMENT_EXTENSIONS:
                 docs.append(child)
         return folders, docs
 
     def output_dir_for(self, source_path: str | os.PathLike[str]) -> Path:
         return Path(source_path).expanduser().resolve().parent
 
-    def translated_path(self, source_path: str | os.PathLike[str]) -> Path:
-        source = Path(source_path)
-        base, ext = os.path.splitext(source.name)
-        return source.resolve().parent / f'{base}-翻译{ext}'
+    def translated_path(self, source_path: str | os.PathLike[str], target_lang: str = 'zh-Hans') -> Path:
+        from src.library.artifacts import ArtifactLayout
+        source = Path(source_path).expanduser().resolve()
+        suffix = '.tex' if source.suffix.lower() == '.pdf' else source.suffix or '.txt'
+        return ArtifactLayout.for_source(source).translation_path(target_lang, suffix)
+
+    def parse_dir_for(self, source_path: str | os.PathLike[str]) -> Path:
+        from src.library.artifacts import ArtifactLayout
+        source = Path(source_path).expanduser().resolve()
+        return ArtifactLayout.for_source(source).parse_dir
 
     def file_state(self, path: str | os.PathLike[str]) -> dict:
         return self.state.get('files', {}).get(self.relative_path(path), {})

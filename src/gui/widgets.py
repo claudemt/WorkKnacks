@@ -28,19 +28,33 @@ class LogView(ttk.LabelFrame):
         self._queue.put((message, level))
 
     def _poll(self):
+        items = []
         try:
             while True:
-                message, level = self._queue.get_nowait()
-                self._append(message, level)
+                items.append(self._queue.get_nowait())
         except queue.Empty:
             pass
+        if items:
+            self._append_many(items)
         self.after(100, self._poll)
 
-    def _append(self, message, level):
+    def _append_many(self, items):
+        
+        
+        
         self.text.configure(state=tk.NORMAL)
+        anchor = self.text.index('end-1c')
         ts = datetime.now().strftime('%H:%M:%S')
-        self.text.insert(tk.END, f'[{ts}] ', 'info')
-        self.text.insert(tk.END, message + '\n', level)
+        plain = ''
+        ranges = []  
+        for message, level in items:
+            start = len(plain)
+            plain += f'[{ts}] {message}\n'
+            ranges.append((start, start + len(ts) + 3, 'info'))
+            ranges.append((start + len(ts) + 3, len(plain), level))
+        self.text.insert(tk.END, plain)
+        for start, end, tag in ranges:
+            self.text.tag_add(tag, f'{anchor}+{start}c', f'{anchor}+{end}c')
         self.text.see(tk.END)
         self.text.configure(state=tk.DISABLED)
 
@@ -64,23 +78,41 @@ class ProgressBar(ttk.Frame):
     def set(self, done: int, total: int, message: str = ''):
         self._queue.put(('set', done, total, message))
 
+    def busy(self, message: str = ''):
+        self._queue.put(('busy', message))
+
     def reset(self):
         self._queue.put(('reset', 0, 0, ''))
 
     def _poll(self):
+        latest = None
         try:
             while True:
-                item = self._queue.get_nowait()
-                if item[0] == 'set':
-                    _, done, total, message = item
-                    self.bar.configure(maximum=max(total, 1),
-                                       value=min(done, total))
-                    pct = int(done * 100 / total) if total else 0
-                    self.label.configure(
-                        text=message or f'{done}/{total} ({pct}%)')
-                else:
-                    self.bar.configure(value=0)
-                    self.label.configure(text='')
+                latest = self._queue.get_nowait()
         except queue.Empty:
             pass
+        if latest is not None:
+            kind = latest[0]
+            if kind == 'busy':
+                self._stop_busy()
+                self.bar.configure(mode='indeterminate')
+                self.bar.start(12)
+                self.label.configure(text=latest[1] or '处理中…')
+            elif kind == 'set':
+                self._stop_busy()
+                _, done, total, message = latest
+                self.bar.configure(maximum=max(total, 1), value=min(done, total))
+                pct = int(done * 100 / total) if total else 0
+                self.label.configure(text=message or f'{done}/{total} ({pct}%)')
+            else:
+                self._stop_busy()
+                self.bar.configure(value=0)
+                self.label.configure(text='')
         self.after(100, self._poll)
+
+    def _stop_busy(self):
+        try:
+            self.bar.stop()
+        except Exception:
+            pass
+        self.bar.configure(mode='determinate')

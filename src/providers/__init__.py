@@ -1,7 +1,6 @@
-from .base import ProviderRegistry, BaseProvider, TranslationProvider, TranscriptionProvider, ParseProvider, ProviderMeta
+from .base import ProviderRegistry, BaseProvider, TranslationProvider, ParseProvider, ProviderMeta
 
 from . import translate
-from . import transcribe
 from . import parse
 
 registry = ProviderRegistry

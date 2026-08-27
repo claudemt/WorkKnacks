@@ -32,6 +32,20 @@ class DeepLTranslateProvider(TranslationProvider):
         except ImportError:
             return False, '需要安装 curl_cffi: pip install curl_cffi'
 
+    def check_connectivity(self) -> tuple[bool, str]:
+        ok, msg = self.validate_auth()
+        if not ok:
+            return False, msg
+        try:
+            out = self._translate('connectivity test', 'zh-Hans', 'en')
+            if out is None:
+                return False, '触发限流（HTTP 429），请稍后重试'
+            if not out or not out.strip():
+                return False, 'API 返回为空'
+            return True, f'连通正常（返回：{out[:40]}）'
+        except Exception as exc:
+            return False, f'连接失败：{exc}'
+
     def _translate(self, text: str, target_lang: str = 'zh-Hans',
                    source_lang: str = 'en') -> str:
 

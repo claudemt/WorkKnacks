@@ -43,23 +43,38 @@ class Config:
         return bool(self.get(key))
 
     def set(self, key: str, value: str):
+        self.set_many({key: value})
 
-        os.environ[key] = value
+    def set_many(self, values: dict[str, str]):
         env_path = self.root / 'config' / '.env.local'
-        lines = []
-        found = False
+        env_path.parent.mkdir(parents=True, exist_ok=True)
+        normalized = {str(k).strip(): str(v).strip() for k, v in values.items() if str(k).strip()}
+        for key, value in normalized.items():
+            if value:
+                os.environ[key] = value
+            else:
+                os.environ.pop(key, None)
+
+        existing = []
+        seen = set()
         if env_path.exists():
-            with open(env_path, encoding='utf-8') as f:
-                for line in f:
-                    if line.strip().startswith(key + '='):
-                        lines.append(f'{key}={value}\n')
-                        found = True
-                    else:
-                        lines.append(line)
-        if not found:
-            lines.append(f'{key}={value}\n')
-        with open(env_path, 'w', encoding='utf-8') as f:
-            f.writelines(lines)
+            existing = env_path.read_text(encoding='utf-8').splitlines(keepends=True)
+        output = []
+        for line in existing:
+            stripped = line.strip()
+            if '=' in stripped and not stripped.startswith('#'):
+                key = stripped.split('=', 1)[0].strip()
+                if key in normalized:
+                    output.append(f'{key}={normalized[key]}\n')
+                    seen.add(key)
+                    continue
+            output.append(line if line.endswith('\n') else line + '\n')
+        if output and output[-1].strip():
+            output.append('\n')
+        for key, value in normalized.items():
+            if key not in seen:
+                output.append(f'{key}={value}\n')
+        env_path.write_text(''.join(output), encoding='utf-8')
 
 config = Config()
 

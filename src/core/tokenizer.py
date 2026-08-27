@@ -29,7 +29,7 @@ MATH_ENVS = {
 
 PROTECTED_ENVS = {
     'verbatim', 'Verbatim', 'verbatim*', 'lstlisting', 'lstlisting*',
-    'minted', 'alltt', 'comment', 'filecontents', 'filecontents*',
+    'minted', 'alltt', 'comment', 'filecontents', 'filecontents*', 'thebibliography',
 }
 
 KEEP_CHARS = set('&#~^_')
@@ -209,7 +209,7 @@ def tokenize(s: str):
                         toks.extend(gt)
                         toks.append(('keep', '}'))
                     elif name in ('verb', 'lstinline'):
-                        # 定界符包裹的原始内容（代码/命令）整体保留
+                        
                         if j < b and not t[j].isspace():
                             delim = t[j]
                             e = t.find(delim, j + 1)
@@ -348,11 +348,7 @@ _MD_LINK = re.compile(r'\[[^\]]*\]\([^)]+\)')
 _MD_TAG = re.compile(r'<(sup|sub)>[^<]*</\1>', re.I)
 
 def tokenize_markdown(s: str):
-    """Markdown 分词：公式/代码/图片链接/上下标整体保留，其余按普通文本翻译。
-
-    与 tokenize() 输出同构（('text'|'keep', content)），text 不含换行，
-    可直接复用 build_chunks / assemble 管线。
-    """
+    
 
     n = len(s)
     tokens = []
@@ -391,8 +387,8 @@ def tokenize_markdown(s: str):
             tokens.append(('keep', s[i:end]))
             i = end
         elif s.startswith('$$', i):
-            # 块级公式跨行（$$\n...\n$$）或单行（$$x=1$$）均可；
-            # 无换行的单行形态限制跨度，防止孤立 $$ 吞掉后续正文
+            
+            
             e = s.find('$$', i + 2)
             if e < 0:
                 buf.append('$')
@@ -405,7 +401,7 @@ def tokenize_markdown(s: str):
                 tokens.append(('keep', s[i:e + 2]))
                 i = e + 2
         elif c == '$':
-            # 行内公式必须同行闭合；孤立 $（如货币符号）按普通文本处理
+            
             line_end = s.find('\n', i)
             line_end = line_end if line_end >= 0 else n
             e = s.find('$', i + 1, line_end)
@@ -417,7 +413,7 @@ def tokenize_markdown(s: str):
                 tokens.append(('keep', s[i:e + 1]))
                 i = e + 1
         elif c == '`':
-            # 行内代码同行闭合；孤立反引号按普通文本处理
+            
             line_end = s.find('\n', i)
             line_end = line_end if line_end >= 0 else n
             e = s.find('`', i + 1, line_end)

@@ -4,14 +4,15 @@ from .runtime import runtime_dir
 
 class ProgressManager:
 
-    def __init__(self, state_path: str = None, save_every: int = 10):
+    def __init__(self, state_path: str = None, save_every: int = 10, namespace: str = 'default'):
         if state_path is None:
             state_path = runtime_dir() / '.progress.json'
         self.state_path = Path(state_path)
         self.state_path.parent.mkdir(parents=True, exist_ok=True)
         self.state = self._load()
-        # 大文件逐块翻译时，每块都读全文件算 hash 是 O(n²) 的，
-        # 这里按 (路径, mtime, 大小) 缓存一次；落盘批量执行，崩溃最多丢 save_every 块。
+        self.namespace = str(namespace or 'default')
+        
+        
         self._hash_cache = {}
         self._save_every = save_every
         self._since_save = 0
@@ -38,7 +39,8 @@ class ProgressManager:
         if cached is not None:
             return cached
         with open(path, 'rb') as f:
-            digest = hashlib.sha256(f.read()).hexdigest()[:16]
+            raw = f.read()
+        digest = hashlib.sha256(self.namespace.encode('utf-8') + b'\0' + raw).hexdigest()[:20]
         self._hash_cache[key] = digest
         return digest
 

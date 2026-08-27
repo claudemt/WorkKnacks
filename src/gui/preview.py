@@ -3,6 +3,7 @@ from pathlib import Path
 from tkinter import ttk
 
 from ..core.runtime import runtime_dir
+from .layout import fit_window
 
 
 class ImagePreview(tk.Toplevel):
@@ -16,7 +17,13 @@ class ImagePreview(tk.Toplevel):
             ttk.Label(self, text='图片无法加载', padding=20).pack()
             return
         w, h = self.photo.width(), self.photo.height()
-        self.geometry(f'{w}x{h+40}')
+        screen_w = max(1, self.winfo_screenwidth() - 80)
+        screen_h = max(1, self.winfo_screenheight() - 120)
+        factor = max(1, int(max(w / screen_w, h / screen_h) + 0.999))
+        if factor > 1:
+            self.photo = self.photo.subsample(factor, factor)
+            w, h = self.photo.width(), self.photo.height()
+        fit_window(self, w + 24, h + 70, min_width=min(320, w + 24), min_height=min(200, h + 70))
         ttk.Label(self, image=self.photo).pack(pady=4)
         ttk.Label(self, text='扫码后本窗口自动关闭').pack()
 
@@ -25,7 +32,7 @@ class PdfPreview(tk.Toplevel):
     def __init__(self, parent, pdf_path: str):
         super().__init__(parent)
         self.title(Path(pdf_path).name)
-        self.geometry('900x1000')
+        fit_window(self, 900, 900, min_width=640, min_height=520)
         self.transient(parent)
 
         try:

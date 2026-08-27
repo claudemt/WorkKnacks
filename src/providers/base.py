@@ -28,6 +28,10 @@ class BaseProvider(ABC):
     def validate_auth(self) -> tuple[bool, str]:
         ...
 
+    def check_connectivity(self) -> tuple[bool, str]:
+        
+        return self.validate_auth()
+
     def get_limits(self) -> dict:
         return {
             'max_chunk_chars': self.meta.max_chunk_chars,
@@ -44,10 +48,6 @@ class TranslationProvider(BaseProvider):
     def _translate(self, text: str, target_lang: str,
                    source_lang: str = 'en') -> str:
         ...
-
-
-class TranscriptionProvider(BaseProvider):
-    ...
 
 
 class ParseProvider(BaseProvider):

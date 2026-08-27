@@ -6,6 +6,7 @@ from .tokenizer import (
     GLOSSARY, assemble, build_chunks, tokenize, tokenize_markdown,
 )
 from .chunker import TextChunker
+from .academic_translation import AcademicLatexPlan, AcademicMarkdownPlan, translate_segment_preserving_tokens
 
 PLAIN_FORMATS = ('.txt', '.srt', '.vtt', '.json', '.csv')
 MD_FORMATS = ('.md', '.markdown')
@@ -20,7 +21,9 @@ def translate_file(file_path: str, provider, target_lang: str = 'zh-Hans',
         content = f.read()
 
     suffix = os.path.splitext(file_path)[1].lower()
-    progress = ProgressManager(progress_path) if resume else None
+    provider_id = getattr(getattr(provider, 'meta', None), 'provider_id', provider.__class__.__name__)
+    progress_namespace = f'translation:{suffix}:{provider_id}:{source_lang}:{target_lang}'
+    progress = ProgressManager(progress_path, namespace=progress_namespace) if resume else None
 
     if output_path is None:
         base, ext = os.path.splitext(file_path)
@@ -28,13 +31,13 @@ def translate_file(file_path: str, provider, target_lang: str = 'zh-Hans',
 
     try:
         if suffix == '.tex':
-            result = _translate_tokens(
-                file_path, tokenize(content), provider, target_lang,
-                source_lang, progress, progress_cb, cancel_flag, usage_cb)
+            result = _translate_academic_latex(
+                file_path, content, provider, target_lang, source_lang, progress,
+                progress_cb, cancel_flag, usage_cb)
         elif suffix in MD_FORMATS:
-            result = _translate_tokens(
-                file_path, tokenize_markdown(content), provider, target_lang,
-                source_lang, progress, progress_cb, cancel_flag, usage_cb)
+            result = _translate_academic_markdown(
+                file_path, content, provider, target_lang, source_lang, progress,
+                progress_cb, cancel_flag, usage_cb)
         else:
             result = _translate_plain(
                 file_path, content, provider, target_lang, source_lang,
@@ -43,10 +46,86 @@ def translate_file(file_path: str, provider, target_lang: str = 'zh-Hans',
         if progress:
             progress.flush()
 
+    os.makedirs(os.path.dirname(os.path.abspath(output_path)) or '.', exist_ok=True)
     with open(output_path, 'w', encoding='utf-8') as f:
         f.write(result)
+    
+    
+    
+    if progress:
+        progress.invalidate(file_path)
     return output_path
 
+
+
+def _translate_academic_latex(file_path: str, content: str, provider, target_lang,
+                              source_lang, progress, progress_cb, cancel_flag,
+                              usage_cb) -> str:
+    
+    max_chars = provider.meta.max_chunk_chars or 1350
+    plan = AcademicLatexPlan.build(content, max_chars=max_chars)
+    units = plan.translatable_segments
+    total = len(units)
+    translated_units: list[str] = []
+    for i, segment in enumerate(units):
+        if cancel_flag and cancel_flag():
+            raise InterruptedError('用户取消')
+        cached = progress.get_chunk(file_path, i) if progress else None
+        if cached is not None:
+            translated = cached
+        else:
+            translated = translate_segment_preserving_tokens(
+                segment,
+                lambda text: _call_with_retry(provider, text, target_lang, source_lang),
+            )
+            if usage_cb:
+                usage_cb(segment.chars)
+            if progress:
+                progress.set_chunk(file_path, i, translated)
+            _pace(provider)
+        translated_units.append(translated)
+        if progress_cb:
+            progress_cb(i + 1, total, f'学术段落 {i + 1}/{total}')
+    result = plan.render(translated_units)
+    for a, b in GLOSSARY:
+        result = result.replace(a, b)
+    return result
+
+
+def _translate_academic_markdown(file_path: str, content: str, provider, target_lang,
+                                 source_lang, progress, progress_cb, cancel_flag,
+                                 usage_cb) -> str:
+    
+    max_chars = provider.meta.max_chunk_chars or 1350
+    plan = AcademicMarkdownPlan.build(content, max_chars=max_chars)
+    units = plan.translatable_segments
+    total = len(units)
+    translated_units: list[str] = []
+
+    for i, segment in enumerate(units):
+        if cancel_flag and cancel_flag():
+            raise InterruptedError('用户取消')
+        cached = progress.get_chunk(file_path, i) if progress else None
+        if cached is not None:
+            translated = cached
+        else:
+            translated = translate_segment_preserving_tokens(
+                segment,
+                lambda text: _call_with_retry(provider, text, target_lang, source_lang),
+            )
+            if usage_cb:
+                usage_cb(segment.chars)
+            if progress:
+                progress.set_chunk(file_path, i, translated)
+            _pace(provider)
+        translated_units.append(translated)
+        if progress_cb:
+            progress_cb(i + 1, total, f'学术段落 {i + 1}/{total}')
+
+    result = plan.render(translated_units)
+    for a, b in GLOSSARY:
+        result = result.replace(a, b)
+    return result
 
 def _translate_tokens(file_path: str, tokens, provider, target_lang,
                       source_lang, progress, progress_cb, cancel_flag,
@@ -80,7 +159,7 @@ def _translate_tokens(file_path: str, tokens, provider, target_lang,
 
 
 def _translate_chunk(provider, chunk, target_lang, source_lang) -> str:
-    """翻译一个块；译文行数与原文段数对不上时，逐段单独翻译兜底。"""
+    
 
     pieces = chunk['pieces']
     text = '\n'.join(piece for _, piece in pieces)
@@ -88,8 +167,8 @@ def _translate_chunk(provider, chunk, target_lang, source_lang) -> str:
     if translated.count('\n') == len(pieces) - 1:
         return translated
 
-    # 行数对应不上（DeepL 合并/拆分了换行）：逐段单独请求，
-    # 保证 assemble 的逐行映射成立，代价是本次多几次请求。
+    
+    
     parts = []
     for _, piece in pieces:
         parts.append(_call_with_retry(provider, piece, target_lang, source_lang))
@@ -130,7 +209,7 @@ def _translate_plain(file_path: str, content: str, provider, target_lang,
 
 
 def estimate_job(file_path: str, provider) -> dict:
-    """开工前预估：块数、字符数、预计耗时（不发起任何网络请求）。"""
+    
 
     with open(file_path, encoding='utf-8') as f:
         content = f.read()
@@ -138,11 +217,13 @@ def estimate_job(file_path: str, provider) -> dict:
     suffix = os.path.splitext(file_path)[1].lower()
     max_chars = provider.meta.max_chunk_chars or 1350
     if suffix == '.tex':
-        chunks = build_chunks(tokenize(content), max_chars)
-        chars = sum(len(piece) for ch in chunks for _, piece in ch['pieces'])
+        plan = AcademicLatexPlan.build(content, max_chars=max_chars)
+        chunks = plan.translatable_segments
+        chars = sum(segment.chars for segment in chunks)
     elif suffix in MD_FORMATS:
-        chunks = build_chunks(tokenize_markdown(content), max_chars)
-        chars = sum(len(piece) for ch in chunks for _, piece in ch['pieces'])
+        plan = AcademicMarkdownPlan.build(content, max_chars=max_chars)
+        chunks = plan.translatable_segments
+        chars = sum(segment.chars for segment in chunks)
     else:
         plain = TextChunker(max_chars).chunk(content)
         chunks = [{'pieces': [(i, ch)]} for i, ch in enumerate(plain)]

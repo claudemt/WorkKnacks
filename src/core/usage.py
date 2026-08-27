@@ -5,10 +5,7 @@ from pathlib import Path
 
 
 class UsageLedger:
-    """按 供应商 × 月份 记录已消耗的源文字符数，防止免费额度被静默刷爆。
-
-    数据存于项目目录的 .workknacks/usage.json。
-    """
+    
 
     def __init__(self, path: str | os.PathLike[str] = None):
         if path is None:

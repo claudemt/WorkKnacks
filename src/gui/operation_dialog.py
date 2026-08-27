@@ -1,441 +1,296 @@
 from __future__ import annotations
 
-import os
 import queue
 import threading
 import tkinter as tk
 from pathlib import Path
 from tkinter import messagebox, ttk
 
-from ..core.pipeline import estimate_job, translate_file
+from ..core.pipeline import estimate_job
 from ..core.usage import UsageLedger
-from ..providers import registry
 from ..core.workspace import ProjectWorkspace
+from ..library.operations import has_parsed_latex, parse_document, translate_document
+from ..providers import registry
+from .layout import fit_window
 from .widgets import LogView, ProgressBar
 
-SOURCE_LANGS = ['en', 'zh', 'ja', 'ko', 'fr', 'de', 'es', 'ru', 'auto']
+
 ESTIMATE_CONFIRM_CHUNKS = 50
-
-
-OPERATION_NAMES = {
-    'translate': '翻译',
-    'transcribe': '转写',
-    'parse': '解析',
-}
+OPERATION_NAMES = {'translate': '翻译'}
+TARGET_LANGS = {'中文': 'zh-Hans', 'English': 'en'}
 
 
 class OperationDialog(tk.Toplevel):
-    def __init__(
-        self,
-        parent,
-        workspace: ProjectWorkspace,
-        source_path: str,
-        category: str,
-        on_done=None,
-    ):
+    
+
+    def __init__(self, parent, workspace: ProjectWorkspace, source_path: str, category: str, on_done=None):
         super().__init__(parent)
         self.workspace = workspace
         self.source_path = Path(source_path)
         self.category = category
         self.on_done = on_done
         self._queue = queue.Queue()
-        self._records = []
         self._running = False
+        self.parse_btn = None
 
         self.title(f'{OPERATION_NAMES[category]} · {self.source_path.name}')
-        self.geometry('720x620')
-        self.minsize(640, 500)
+        fit_window(self, 720, 560, min_width=600, min_height=460)
         self.transient(parent)
 
         body = ttk.Frame(self, padding=14)
         body.pack(fill=tk.BOTH, expand=True)
 
-        provider_frame = ttk.LabelFrame(body, text='供应商', padding=8)
-        provider_frame.pack(fill=tk.X)
-        self.provider_var = tk.StringVar()
-        self.provider_combo = ttk.Combobox(
-            provider_frame,
-            textvariable=self.provider_var,
-            state='readonly',
-            width=32,
-        )
-        self.provider_combo.pack(side=tk.LEFT)
-        self.provider_combo.bind('<<ComboboxSelected>>', self._refresh_auth)
-        self.auth_label = ttk.Label(provider_frame, text='')
-        self.auth_label.pack(side=tk.LEFT, padx=10)
-
-        self.options = ttk.Frame(body)
-        self.options.pack(fill=tk.X, pady=(10, 0))
-        self._build_options()
-
-        if category == 'transcribe':
-            self._build_records(body)
+        if category == 'translate':
+            options = ttk.Frame(body)
+            options.pack(fill=tk.X)
+            ttk.Label(options, text='目标语言').pack(side=tk.LEFT)
+            self.lang_display_var = tk.StringVar(value='中文')
+            self.lang_combo = ttk.Combobox(
+                options, textvariable=self.lang_display_var,
+                values=list(TARGET_LANGS), state='readonly', width=12,
+            )
+            self.lang_combo.pack(side=tk.LEFT, padx=(8, 0))
 
         action_row = ttk.Frame(body)
-        action_row.pack(fill=tk.X, pady=10)
-        self.start_btn = ttk.Button(
-            action_row,
-            text=f'开始{OPERATION_NAMES[category]}',
-            command=self._start,
-        )
-        self.start_btn.pack(side=tk.LEFT)
-        ttk.Button(action_row, text='关闭', command=self.destroy).pack(
-            side=tk.RIGHT
-        )
+        action_row.pack(fill=tk.X, pady=(12, 8))
+        self.parse_btn = None
+        self.arxiv_btn = None
+        has_parse_buttons = False
+        if category == 'translate' and self.source_path.suffix.lower() == '.pdf':
+            self.parse_btn = ttk.Button(action_row, text='解析', command=self._start_parse)
+            self.parse_btn.pack(side=tk.LEFT)
+            self.arxiv_btn = ttk.Button(action_row, text='用 arXiv 源码', command=self._start_parse_arxiv)
+            self.arxiv_btn.pack(side=tk.LEFT, padx=(8, 0))
+            has_parse_buttons = True
+        self.start_btn = ttk.Button(action_row, text=f'开始{OPERATION_NAMES[category]}', command=self._start)
+        self.start_btn.pack(side=tk.LEFT, padx=(8 if has_parse_buttons else 0, 0))
+        ttk.Button(action_row, text='关闭', command=self.destroy).pack(side=tk.RIGHT)
 
         self.progress = ProgressBar(body)
         self.progress.pack(fill=tk.X, pady=(0, 8))
         self.log = LogView(body, height=8)
         self.log.pack(fill=tk.BOTH, expand=True)
-
-        self._refresh_providers()
         self.after(100, self._poll)
 
-    def _build_options(self):
-        for child in self.options.winfo_children():
-            child.destroy()
-        if self.category == 'translate':
-            ttk.Label(self.options, text='源语言').pack(side=tk.LEFT)
-            self.source_var = tk.StringVar(value='en')
-            ttk.Combobox(
-                self.options,
-                textvariable=self.source_var,
-                state='readonly',
-                width=6,
-                values=SOURCE_LANGS,
-            ).pack(side=tk.LEFT, padx=(4, 8))
-            ttk.Label(self.options, text='目标语言').pack(side=tk.LEFT)
-            self.lang_var = tk.StringVar(value='zh-Hans')
-            ttk.Combobox(
-                self.options,
-                textvariable=self.lang_var,
-                state='readonly',
-                width=12,
-                values=['zh-Hans', 'zh', 'en'],
-            ).pack(side=tk.LEFT, padx=8)
-            self.resume_var = tk.BooleanVar(value=True)
-            ttk.Checkbutton(
-                self.options,
-                text='使用断点续传',
-                variable=self.resume_var,
-            ).pack(side=tk.LEFT, padx=8)
-        elif self.category == 'parse':
-            ttk.Label(
-                self.options,
-                text=f'输出目录：{self.workspace.output_dir_for(self.source_path)}',
-            ).pack(anchor=tk.W)
-        else:
-            ttk.Label(
-                self.options,
-                text=f'输出目录：{self.workspace.output_dir_for(self.source_path)}',
-            ).pack(anchor=tk.W)
-
-    def _build_records(self, parent):
-        frame = ttk.LabelFrame(parent, text='腾讯会议云录制', padding=8)
-        frame.pack(fill=tk.BOTH, expand=True, pady=(10, 0))
-        row = ttk.Frame(frame)
-        row.pack(fill=tk.X)
-        ttk.Button(row, text='加载云录制列表', command=self._load_records).pack(
-            side=tk.LEFT
-        )
-        self.records_hint = ttk.Label(row, text='请选择要导出的录制')
-        self.records_hint.pack(side=tk.LEFT, padx=10)
-        list_frame = ttk.Frame(frame)
-        list_frame.pack(fill=tk.BOTH, expand=True, pady=(8, 0))
-        self.records_list = tk.Listbox(
-            list_frame,
-            selectmode=tk.EXTENDED,
-            font=('Microsoft YaHei UI', 10),
-        )
-        scroll = ttk.Scrollbar(
-            list_frame,
-            orient=tk.VERTICAL,
-            command=self.records_list.yview,
-        )
-        self.records_list.configure(yscrollcommand=scroll.set)
-        self.records_list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scroll.pack(side=tk.RIGHT, fill=tk.Y)
-
-    def _refresh_providers(self, *_):
-        metas = registry.list_by_category(self.category)
-        self.provider_combo['values'] = [meta.name for meta in metas]
-        if metas:
-            configured = registry.default_for(self.category)
-            idx = next(
-                (
-                    i
-                    for i, meta in enumerate(metas)
-                    if meta.provider_id == configured
-                ),
-                0,
-            )
-            self.provider_combo.current(idx)
-            self._refresh_auth()
-
-    def _selected_meta(self):
-        metas = registry.list_by_category(self.category)
-        index = self.provider_combo.current()
-        if 0 <= index < len(metas):
-            return metas[index]
-        return None
-
     def _provider(self):
-        meta = self._selected_meta()
-        return registry.get(meta.provider_id) if meta else None
+        provider_id = registry.default_for(self.category)
+        if not provider_id:
+            metas = registry.list_by_category(self.category)
+            provider_id = metas[0].provider_id if metas else ''
+        provider = registry.get(provider_id) if provider_id else None
+        if provider is None:
+            metas = registry.list_by_category(self.category)
+            provider = registry.get(metas[0].provider_id) if metas else None
+        return provider
 
-    def _refresh_auth(self, *_):
+    def _require_provider(self):
         provider = self._provider()
         if provider is None:
-            self.auth_label.configure(text='没有可用供应商')
-            return
-        ok, message = provider.validate_auth()
-        self.auth_label.configure(
-            text=('✓ ' if ok else '✗ ') + message,
-            foreground='#2e8b57' if ok else '#b22222',
-        )
-
-    def _load_records(self):
-        provider = self._provider()
-        if provider is None:
-            return
+            raise RuntimeError(f'没有可用的{OPERATION_NAMES[self.category]}服务。请点击主界面“配置”完成服务配置。')
         ok, message = provider.validate_auth()
         if not ok:
-            messagebox.showerror('转写', message, parent=self)
+            raise RuntimeError(message + '\n\n请点击主界面“配置”完成服务配置。')
+        return provider
+
+    def _start_parse(self):
+        self._begin_parse(arxiv_only=False)
+
+    def _start_parse_arxiv(self):
+        self._begin_parse(arxiv_only=True)
+
+    def _begin_parse(self, arxiv_only: bool):
+        if self._running:
             return
-        self.records_hint.configure(text='加载中...')
+        if self.source_path.suffix.lower() != '.pdf':
+            return
+        if not self.source_path.exists():
+            messagebox.showerror('解析', '源文件已经不存在，请刷新项目。', parent=self)
+            return
+        if has_parsed_latex(self.source_path):
+            if not messagebox.askyesno(
+                '重新解析',
+                '已经存在解析结果。重新解析会更新 parsed/ 中的 main.tex、main.pdf 和 figures/。继续吗？',
+                parent=self,
+            ):
+                return
+        if not arxiv_only:
+            provider_id = registry.default_for('parse') or 'mineru'
+            provider = registry.get(provider_id)
+            if provider is None:
+                messagebox.showerror('解析', '没有可用的 MinerU 解析服务。请点击主界面“配置”。', parent=self)
+                return
+            ok, message = provider.validate_auth()
+            if not ok:
+                messagebox.showerror('解析', message + '\n\n请点击主界面“配置”完成 MinerU 配置。', parent=self)
+                return
 
-        def work():
+        self._running = True
+        self.start_btn.configure(state=tk.DISABLED)
+        for btn in (self.parse_btn, self.arxiv_btn):
+            if btn is not None:
+                btn.configure(state=tk.DISABLED)
+        self.progress.reset()
+        label = '用 arXiv 源码解析' if arxiv_only else 'MinerU 解析'
+        self.workspace.record_action(self.source_path, 'parse', 'running', message=label + ' 任务已开始')
+        self.log.log(('正在从 arXiv 下载 TeX 源码…' if arxiv_only else '尝试从 arXiv 获取源码，失败则回退 MinerU；完成后会自动进行一轮 AI 解析校对。'))
+        threading.Thread(target=lambda: self._run_parse(arxiv_only), daemon=True).start()
+
+    def _run_parse(self, arxiv_only=False):
+        try:
+            arxiv_id = ''
+            title = ''
+            authors = []
+            year = None
             try:
-                records = provider.list_records()
-                self._queue.put(('records', records))
-            except Exception as exc:
-                self._queue.put(('error', str(exc)))
-
-        threading.Thread(target=work, daemon=True).start()
+                from ..library.index import LibraryIndex
+                entry = LibraryIndex(self.workspace.root).entry_for_path(self.source_path)
+                if entry:
+                    arxiv_id = entry.arxiv_id
+                    title = entry.title
+                    year = entry.year or None
+                    authors = [
+                        f'{author.given or ""} {author.family or ""}'.strip()
+                        for author in entry.authors
+                        if author.family or author.given
+                    ]
+            except Exception:
+                arxiv_id = ''
+            tex_path = parse_document(
+                self.source_path,
+                project_root=self.workspace.root,
+                status_cb=lambda text: self._queue.put(('status', text)),
+                arxiv_id=arxiv_id,
+                arxiv_only=arxiv_only,
+                title=title,
+                authors=authors,
+                year=year,
+            )
+            outputs = [str(tex_path)]
+            pdf_path = tex_path.with_name('main.pdf')
+            if pdf_path.exists():
+                outputs.append(str(pdf_path))
+            self.workspace.record_action(self.source_path, 'parse', 'done', outputs, message='解析完成')
+            self._queue.put(('parsed', outputs))
+        except Exception as exc:
+            self.workspace.record_action(self.source_path, 'parse', 'error', message=str(exc))
+            self._queue.put(('error', str(exc)))
 
     def _start(self):
         if self._running:
             return
-        provider = self._provider()
-        if provider is None:
-            return
-        ok, message = provider.validate_auth()
-        if not ok:
-            messagebox.showerror(
-                OPERATION_NAMES[self.category],
-                message,
-                parent=self,
-            )
+        try:
+            provider = self._require_provider()
+        except Exception as exc:
+            messagebox.showerror(OPERATION_NAMES[self.category], str(exc), parent=self)
             return
         if not self.source_path.exists():
             messagebox.showerror('工作区', '源文件已经不存在，请刷新项目。', parent=self)
             return
         if self.category == 'translate' and self.source_path.suffix.lower() not in {
-            '.md', '.txt', '.tex', '.srt', '.vtt', '.csv', '.json'
+            '.pdf', '.md', '.txt', '.tex', '.srt', '.vtt', '.csv', '.json'
         }:
+            messagebox.showwarning('翻译', '当前翻译支持 PDF 与文本类文档。', parent=self)
+            return
+
+        if self.category == 'translate' and self.source_path.suffix.lower() == '.pdf' and not has_parsed_latex(self.source_path):
             messagebox.showwarning(
                 '翻译',
-                '当前翻译管线只支持文本类文档。',
-                parent=self,
-            )
-            return
-        if self.category == 'transcribe' and not self._records:
-            messagebox.showwarning(
-                '转写',
-                '请先加载云录制列表并选择录制。',
-                parent=self,
-            )
-            return
-        if self.category == 'transcribe' and not self.records_list.curselection():
-            messagebox.showwarning(
-                '转写',
-                '请至少选择一条云录制。',
+                '该 PDF 尚未解析。请先点击本窗口的“解析”按钮，确认解析完成后再开始翻译。',
                 parent=self,
             )
             return
 
-        if self.category == 'translate':
+        if self.category == 'translate' and self.source_path.suffix.lower() != '.pdf':
             estimate = estimate_job(str(self.source_path), provider)
             if estimate['chunks'] > ESTIMATE_CONFIRM_CHUNKS:
-                ledger = UsageLedger(self.workspace.usage_path)
-                used = ledger.month_total(provider.meta.provider_id)
                 minutes = max(1, round(estimate['seconds'] / 60))
-                msg = (
-                    f'该文档约 {estimate["chars"]:,} 字符，预计需要 '
-                    f'{estimate["chunks"]} 次请求，按当前供应商限速约 '
-                    f'{minutes} 分钟。\n'
-                    f'本供应商本月已消耗约 {used:,} 字符（免费额度请自行对照）。\n\n'
-                    f'确认开始吗？'
-                )
-                if not messagebox.askyesno('翻译预估', msg, parent=self):
+                if not messagebox.askyesno(
+                    '翻译',
+                    f'这份文档较长，预计约 {estimate["chunks"]} 次请求 / {minutes} 分钟。继续吗？',
+                    parent=self,
+                ):
                     return
 
         self._running = True
         self.start_btn.configure(state=tk.DISABLED)
+        if self.parse_btn is not None:
+            self.parse_btn.configure(state=tk.DISABLED)
         self.progress.reset()
-        self.workspace.record_action(
-            self.source_path,
-            self.category,
-            'running',
-            message='任务已开始',
-        )
-        if self.category == 'transcribe':
-            selected = self.records_list.curselection()
-            records = [self._records[i] for i in selected]
-            thread = threading.Thread(
-                target=self._run_transcribe,
-                args=(provider, records),
-                daemon=True,
-            )
-        else:
-            thread = threading.Thread(
-                target=self._run_file_operation,
-                args=(provider,),
-                daemon=True,
-            )
-        thread.start()
+        self.workspace.record_action(self.source_path, self.category, 'running', message='任务已开始')
+        threading.Thread(target=self._run_file_operation, args=(provider,), daemon=True).start()
 
     def _run_file_operation(self, provider):
         usage_box = []
         try:
-            if self.category == 'translate':
-                output = self.workspace.translated_path(self.source_path)
-                result = translate_file(
-                    str(self.source_path),
-                    provider,
-                    target_lang=self.lang_var.get(),
-                    source_lang=self.source_var.get(),
-                    output_path=str(output),
-                    resume=self.resume_var.get(),
-                    progress_path=str(self.workspace.progress_path),
-                    progress_cb=lambda done, total, message: self.progress.set(
-                        done, total, message
-                    ),
-                    usage_cb=lambda chars: usage_box.append(chars),
-                )
-                outputs = [result]
-            else:
-                result = provider.process_file(
-                    str(self.source_path),
-                    str(self.workspace.output_dir_for(self.source_path)),
-                )
-                outputs = [
-                    item.strip()
-                    for item in result.split(' + ')
-                    if item.strip() and os.path.exists(item.strip())
-                ]
-            self.workspace.record_action(
+            outputs = []
+            target_lang = TARGET_LANGS.get(self.lang_display_var.get(), 'zh-Hans')
+            result = translate_document(
                 self.source_path,
-                self.category,
-                'done',
-                outputs,
-                message='处理完成',
+                provider,
+                target_lang=target_lang,
+                source_lang='auto',
+                resume=True,
+                progress_path=str(self.workspace.progress_path),
+                progress_cb=lambda done, total, message: self.progress.set(done, total, message),
+                usage_cb=lambda chars: usage_box.append(chars),
+                project_root=self.workspace.root,
+                polish=True,
             )
+            outputs.append(str(result))
+            self.workspace.record_action(self.source_path, self.category, 'done', outputs, message='处理完成')
             self._queue.put(('done', outputs))
         except Exception as exc:
-            self.workspace.record_action(
-                self.source_path,
-                self.category,
-                'error',
-                message=str(exc),
-            )
+            self.workspace.record_action(self.source_path, self.category, 'error', message=str(exc))
             self._queue.put(('error', str(exc)))
         finally:
             if usage_box:
-                UsageLedger(self.workspace.usage_path).record(
-                    provider.meta.provider_id, sum(usage_box)
-                )
-
-    def _run_transcribe(self, provider, records):
-        try:
-            results = provider.export_records(
-                records,
-                str(self.workspace.output_dir_for(self.source_path)),
-            )
-            outputs = []
-            failures = []
-            for result in results:
-                if 'chars' in result:
-                    segment = result.get('seg', '')
-                    output = self.workspace.output_dir_for(self.source_path) / (
-                        f'{segment}-总结.md'
-                    )
-                    outputs.append(str(output))
-                if 'error' in result:
-                    failures.append(
-                        f"{result.get('seg', '未知录制')}: {result['error']}"
-                    )
-            if failures and not outputs:
-                raise RuntimeError('\n'.join(failures))
-            self.workspace.record_action(
-                self.source_path,
-                self.category,
-                'done',
-                outputs,
-                message=f'完成 {len(outputs)} 条',
-            )
-            self._queue.put(('done', outputs, failures))
-        except Exception as exc:
-            self.workspace.record_action(
-                self.source_path,
-                self.category,
-                'error',
-                message=str(exc),
-            )
-            self._queue.put(('error', str(exc)))
+                UsageLedger(self.workspace.usage_path).record(provider.meta.provider_id, sum(usage_box))
 
     def _poll(self):
         try:
             while True:
                 item = self._queue.get_nowait()
                 kind = item[0]
-                if kind == 'records':
-                    self._records = item[1]
-                    self.records_list.delete(0, tk.END)
-                    for record in self._records:
-                        self.records_list.insert(
-                            tk.END,
-                            record.get('title', record.get('record_id', '未命名')),
-                        )
-                    self.records_hint.configure(
-                        text=f'共 {len(self._records)} 条，支持多选'
-                    )
+                if kind == 'log':
+                    self.log.log(str(item[1]))
+                elif kind == 'status':
+                    self.progress.busy(str(item[1]))
                 elif kind == 'done':
                     outputs = item[1]
                     failures = item[2] if len(item) > 2 else []
                     self._running = False
                     self.start_btn.configure(state=tk.NORMAL)
-                    self.progress.set(1, 1, '全部完成')
-                    self.log.log(f'完成，生成 {len(outputs)} 个文件', 'success')
-                    for failure in failures:
-                        self.log.log(f'失败：{failure}', 'error')
+                    if self.parse_btn is not None:
+                        self.parse_btn.configure(state=tk.NORMAL)
+                    self.progress.set(1, 1, '完成')
+                    self.log.log('完成')
+                    if failures:
+                        self.log.log('\n'.join(failures))
                     if self.on_done:
-                        self.on_done()
+                        self.on_done(outputs)
+                elif kind == 'parsed':
+                    outputs = item[1]
+                    self._running = False
+                    self.start_btn.configure(state=tk.NORMAL)
+                    if self.parse_btn is not None:
+                        self.parse_btn.configure(state=tk.NORMAL)
+                    self.progress.set(1, 1, '解析完成')
+                    self.log.log('解析完成：' + ', '.join(Path(value).name for value in outputs))
+                    if self.on_done:
+                        
+                        
+                        self.on_done([])
                 elif kind == 'error':
                     self._running = False
                     self.start_btn.configure(state=tk.NORMAL)
-                    self.log.log(item[1], 'error')
-                    messagebox.showerror(
-                        OPERATION_NAMES[self.category],
-                        item[1],
-                        parent=self,
-                    )
+                    if self.parse_btn is not None:
+                        self.parse_btn.configure(state=tk.NORMAL)
+                    self.log.log(str(item[1]))
+                    messagebox.showerror(OPERATION_NAMES[self.category], str(item[1]), parent=self)
         except queue.Empty:
             pass
         self.after(100, self._poll)
 
 
-def open_operation(
-    parent,
-    workspace: ProjectWorkspace,
-    source_path: str,
-    category: str,
-    on_done=None,
-):
-    return OperationDialog(
-        parent,
-        workspace,
-        source_path,
-        category,
-        on_done=on_done,
-    )
+def open_operation(parent, workspace, source_path, category, on_done=None):
+    return OperationDialog(parent, workspace, source_path, category, on_done)
