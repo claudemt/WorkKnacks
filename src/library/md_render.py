@@ -38,9 +38,9 @@ HIGHLIGHT = r'''
 
 
 def markdown_to_fragment(text: str) -> str:
-    
+
     try:
-        import markdown  
+        import markdown
         return markdown.markdown(
             text,
             extensions=['extra', 'fenced_code', 'tables', 'sane_lists'],
@@ -77,7 +77,7 @@ def md_file_to_html(path: str | Path) -> str:
 
 
 def _fallback_markdown(text: str) -> str:
-    
+
     lines = str(text or '').splitlines()
     out: list[str] = []
     paragraph: list[str] = []
@@ -122,7 +122,7 @@ def _fallback_markdown(text: str) -> str:
             continue
         if re.match(r'^[-*+]\s+', line):
             flush_paragraph()
-            
+
             out.append(f'<li>{_inline(re.sub(r"^[-*+]\\s+", "", line))}</li>')
             continue
         paragraph.append(line)

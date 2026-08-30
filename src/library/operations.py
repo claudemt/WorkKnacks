@@ -17,9 +17,6 @@ class ParseRequiredError(RuntimeError):
     pass
 
 
-def parse_output_dir(source: str | Path) -> Path:
-    path = Path(source).expanduser().resolve()
-    return ArtifactLayout.for_source(path).parse_dir
 
 
 def parsed_latex_path(source: str | Path) -> Path:
@@ -133,10 +130,8 @@ def _parse_from_arxiv(
     tex_path = fetch_arxiv_source(arxiv, output_dir, status=status)
     if tex_path is None:
         return None
-    root = Path(project_root).expanduser().resolve() if project_root else _discover_project_root(path)
-    if polish:
-        status('AI 正在校对整理 LaTeX…')
-        _polish_parsed_latex(root, path, tex_path)
+
+
     status('正在编译 main.pdf…')
     try:
         compile_latex(tex_path)
@@ -160,10 +155,19 @@ def translate_document(
     resume: bool = True,
     progress_path: str | None = None,
     progress_cb=None,
+    status_cb=None,
     usage_cb=None,
     project_root: str | Path | None = None,
     polish: bool = True,
 ) -> Path:
+
+    def status(text: str):
+        if status_cb:
+            try:
+                status_cb(text)
+            except Exception:
+                pass
+
     path = Path(source).expanduser().resolve()
     input_path = path
     layout = ArtifactLayout.for_source(path)
@@ -177,6 +181,7 @@ def translate_document(
         layout.ensure_translations()
         suffix = path.suffix if path.suffix.lower() in {'.md', '.markdown', '.txt', '.tex', '.srt', '.vtt'} else '.txt'
         output = layout.translation_path(target_lang, suffix)
+    status('正在翻译文档…')
     result = Path(translate_file(
         str(input_path),
         provider,
@@ -190,6 +195,7 @@ def translate_document(
     ))
     root = Path(project_root).expanduser().resolve() if project_root else None
     if polish and root is not None:
+        status('AI 正在润色译文…')
         _polish_translation(root, input_path, result)
     return result
 
@@ -214,9 +220,8 @@ def _polish_translation(root: Path, original: Path, translated: Path) -> str:
     allowed = [change for change in run.pending_changes if change.relative_path == rel_translated]
     if allowed:
         agent.apply_changes(allowed)
-        
-        
-        
+
+
         try:
             from src.providers.parse.mineru import compile_latex
             compile_latex(translated)
@@ -233,7 +238,7 @@ def _discover_project_root(path: Path) -> Path:
 
 
 def _polish_parsed_latex(root: Path, source: Path, tex_path: Path) -> str:
-    
+
     from src.agent import ProjectAgent
 
     try:

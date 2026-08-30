@@ -28,12 +28,12 @@ class SkillSpec:
 
 
 def workknacks_global_skills_dir() -> Path:
-    
+
     return Path.home() / '.workknacks' / 'skills'
 
 
 def ensure_global_skills() -> Path:
-    
+
     target_root = workknacks_global_skills_dir()
     target_root.mkdir(parents=True, exist_ok=True)
     for name in BUILTIN_SKILL_NAMES:
@@ -49,7 +49,7 @@ def ensure_global_skills() -> Path:
 
 
 def project_skills_dir(root: str | Path | None) -> Path:
-    
+
     if not root:
         return Path()
     return Path(root).expanduser().resolve() / '.workknacks' / 'skills'
@@ -76,7 +76,7 @@ def _project_skill_dirs(root: str | Path | None) -> list[Path]:
 
 
 def list_skills(root=None) -> list[SkillSpec]:
-    
+
     result: list[SkillSpec] = []
     seen: set[str] = set()
 

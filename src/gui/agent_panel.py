@@ -16,7 +16,7 @@ from .layout import fit_window
 
 
 class AgentPanel(ttk.Frame):
-    
+
 
     def __init__(self, parent, on_files_changed=None):
         super().__init__(parent, padding=(8, 6))
@@ -38,7 +38,7 @@ class AgentPanel(ttk.Frame):
         ttk.Label(header, text='AI', font=('Microsoft YaHei UI', 11, 'bold')).pack(side=tk.LEFT)
         ttk.Button(header, text='新对话', width=7, command=self._new_session).pack(side=tk.RIGHT)
         self.project_skill_btn = ttk.Button(header, text='项目Skill', width=8, command=self._open_project_skills)
-        
+
         self.project_skill_btn.pack(side=tk.RIGHT, padx=(0, 4))
         self.more_btn = ttk.Button(header, text='⋯', width=3, command=self._show_more_menu)
         self.more_btn.pack(side=tk.RIGHT, padx=(0, 4))
@@ -83,7 +83,7 @@ class AgentPanel(ttk.Frame):
         self.send_btn = ttk.Button(footer, text='发送', width=8, command=self._send, state=tk.DISABLED)
         self.send_btn.pack(side=tk.RIGHT)
         self.cancel_btn = ttk.Button(footer, text='停止', width=7, command=self._cancel, state=tk.DISABLED)
-        
+
 
     def _show_more_menu(self):
         menu = tk.Menu(self, tearoff=0)
@@ -141,7 +141,7 @@ class AgentPanel(ttk.Frame):
         self.input.focus_set()
 
     def prepare_file_task(self, path: str | Path, *, skill: str = '', prompt: str = ''):
-        
+
         self.insert_file(path)
         if skill in {'summarize', 'polish'} and skill not in self._prepared_skills:
             self._prepared_skills.append(skill)
@@ -458,4 +458,5 @@ class AgentPanel(ttk.Frame):
         self.input.delete(start_idx, end_idx)
         self.input.insert(start_idx, replacement)
         self.suggest_frame.pack_forget()
+        self.input.focus_set()
         self.input.focus_set()

@@ -145,9 +145,4 @@ def open_docs(doc_name: str = 'index'):
     webbrowser.open(f'{_serve_docs()}/{path.stem}.html')
     return True
 
-def list_docs() -> list[str]:
-
-    if not DOCS_ROOT.exists():
-        return []
-    return sorted(p.stem for p in DOCS_ROOT.glob('*.md'))
 

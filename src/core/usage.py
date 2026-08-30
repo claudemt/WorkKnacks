@@ -5,7 +5,7 @@ from pathlib import Path
 
 
 class UsageLedger:
-    
+
 
     def __init__(self, path: str | os.PathLike[str] = None):
         if path is None:

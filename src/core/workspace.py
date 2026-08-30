@@ -23,7 +23,7 @@ def _now() -> str:
 
 
 class ProjectWorkspace:
-    
+
 
     def __init__(self, root: str | os.PathLike[str]):
         self.root = Path(root).expanduser().resolve()
@@ -118,7 +118,7 @@ class ProjectWorkspace:
         return sorted(documents, key=lambda item: (item.name.lower(), str(item).lower()))
 
     def list_dir(self, relative: str = '') -> tuple[list[Path], list[Path]]:
-        
+
 
         base = self.root if not relative else (self.root / relative)
         if not base.is_dir():

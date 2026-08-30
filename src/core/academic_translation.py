@@ -55,8 +55,8 @@ class AcademicMarkdownPlan:
 
     def restore(self, text: str) -> str:
         result = text
-        
-        
+
+
         for token, span in self.spans.items():
             result = result.replace(token, span.text)
         return result
@@ -71,7 +71,7 @@ class AcademicMarkdownPlan:
 
 @dataclass(slots=True)
 class AcademicLatexPlan:
-    
+
 
     source: str
     protected_text: str
@@ -80,8 +80,8 @@ class AcademicLatexPlan:
 
     @classmethod
     def build(cls, source: str, max_chars: int = 1350) -> 'AcademicLatexPlan':
-        
-        
+
+
         from .tokenizer import tokenize
 
         spans: dict[str, ProtectedSpan] = {}
@@ -110,9 +110,8 @@ class AcademicLatexPlan:
             parts.append(token)
 
         protected = ''.join(parts)
-        
-        
-        
+
+
         for token in display_tokens:
             pattern = re.compile(
                 r'(?P<left>\n[ \t]*\n+)(?P<indent>[ \t]*)'
@@ -150,7 +149,7 @@ class AcademicLatexPlan:
 
 
 def protect_scientific_markdown(source: str) -> tuple[str, dict[str, ProtectedSpan]]:
-    
+
 
     text = str(source or '')
     spans: dict[str, ProtectedSpan] = {}
@@ -163,12 +162,10 @@ def protect_scientific_markdown(source: str) -> tuple[str, dict[str, ProtectedSp
         spans[token] = ProtectedSpan(token, raw, kind)
         return token
 
-    
-    
+
     text = _protect_fenced_code(text, stash)
-    
-    
-    
+
+
     text = _protect_reference_sections(text, stash)
 
     replacements: list[tuple[re.Pattern[str], str]] = [
@@ -188,10 +185,7 @@ def protect_scientific_markdown(source: str) -> tuple[str, dict[str, ProtectedSp
     for pattern, kind in replacements:
         text = pattern.sub(lambda m, k=kind: stash(m.group(0), k), text)
 
-    
-    
-    
-    
+
     display_tokens = [token for token, span in list(spans.items()) if span.kind == 'display-math']
     for token in display_tokens:
         pattern = re.compile(
@@ -205,16 +199,14 @@ def protect_scientific_markdown(source: str) -> tuple[str, dict[str, ProtectedSp
             return left + match.group('indent') + formula_token + match.group('trail') + right
         text = pattern.sub(bridge, text)
 
-    
+
     link_url = re.compile(r'(\[[^\]\n]+\]\()([^\s)]+)(\))')
     text = link_url.sub(lambda m: m.group(1) + stash(m.group(2), 'url') + m.group(3), text)
 
-    
-    
-    
+
     text = _protect_table_pipes(text, stash)
 
-    
+
     prefix = re.compile(r'(?m)^([ \t]*(?:#{1,6}[ \t]+|>[ \t]*|[-+*][ \t]+|\d+[.)][ \t]+))')
     text = prefix.sub(lambda m: stash(m.group(1), 'markdown-prefix'), text)
     return text, spans
@@ -224,7 +216,7 @@ def translate_segment_preserving_tokens(
     segment: TranslationSegment,
     translate: Callable[[str], str],
 ) -> str:
-    
+
 
     if not segment.translatable:
         return segment.text
@@ -296,8 +288,8 @@ def _protect_table_pipes(text: str, stash: Callable[[str, str], str]) -> str:
         body = line.rstrip('\r\n')
         newline = line[len(body):]
         stripped = body.strip()
-        
-        
+
+
         if stripped.startswith('|') and stripped.endswith('|') and stripped.count('|') >= 3:
             pieces = body.split('|')
             rebuilt: list[str] = []
@@ -311,9 +303,8 @@ def _protect_table_pipes(text: str, stash: Callable[[str, str], str]) -> str:
 
 
 def _build_segments(text: str, max_chars: int) -> list[TranslationSegment]:
-    
-    
-    
+
+
     pieces = re.split(r'(\n[ \t]*\n+)', text)
     segments: list[TranslationSegment] = []
     for piece in pieces:
@@ -357,8 +348,7 @@ def _split_long_block(block: str, max_chars: int) -> list[str]:
 def _best_scientific_cutoff(window: str) -> int:
     floor = max(1, int(len(window) * 0.52))
 
-    
-    
+
     line = window.rfind('\n', floor)
     if line >= floor:
         return line + 1
@@ -392,8 +382,8 @@ def _looks_like_nonterminal_period(text: str, punct_index: int) -> bool:
     prefix = text[max(0, punct_index - 14):punct_index + 1].casefold()
     if any(prefix.endswith(item) for item in _ABBREVIATIONS):
         return True
-    
-    
+
+
     match = re.search(r'([A-Za-z])\.$', prefix)
     if match:
         tail = text[punct_index + 1:].lstrip()

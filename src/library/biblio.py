@@ -30,8 +30,8 @@ def export_bibtex(entries: Iterable[LibraryEntry], output_path: str | Path | Non
             'pages': entry.pages,
             'doi': entry.doi,
             'url': entry.url,
-            
-            
+
+
             'file': _jabref_file_field(entry.attachments),
         }
         item_type = {
@@ -55,7 +55,7 @@ def export_bibtex(entries: Iterable[LibraryEntry], output_path: str | Path | Non
 
 
 def write_citation_bundle(folder: str | Path, entry: LibraryEntry) -> dict[str, Path]:
-    
+
     target = Path(folder)
     target.mkdir(parents=True, exist_ok=True)
     bib = target / CITATION_BIB

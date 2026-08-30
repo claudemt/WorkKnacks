@@ -70,7 +70,7 @@ class RecoveryReport:
 
 
 class MetadataRecoveryService:
-    
+
 
     def __init__(
         self,
@@ -144,9 +144,8 @@ class MetadataRecoveryService:
         provider = registry.get('mineru')
         if provider and hasattr(provider, 'preview_file'):
             try:
-                
-                
-                
+
+
                 result = provider.preview_file(
                     str(path),
                     str(target),
@@ -222,7 +221,7 @@ def _looks_scanned(text: str) -> bool:
     sample = str(text or '')[:30000]
     if not sample.strip():
         return True
-    
+
     words = re.findall(r'[A-Za-z\u4e00-\u9fff]{3,}', sample)
     printable = sum(ch.isprintable() for ch in sample)
     ratio = printable / max(1, len(sample))

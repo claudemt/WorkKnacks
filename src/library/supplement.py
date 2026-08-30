@@ -51,7 +51,7 @@ def detect_supplement(
     metadata: dict[str, Any] | None = None,
     extracted_doi: str = '',
 ) -> SupplementDetection:
-    
+
     source = str(text or '')
     lower = source.casefold()
     first = '\n'.join(source.splitlines()[:80])
@@ -80,19 +80,14 @@ def detect_supplement(
     parent_match = FOR_PARENT_RE.search(first)
     if parent_match:
         candidate = ' '.join(parent_match.group(1).split()).strip(' :-')
-        
+
         candidate = re.split(r'\s{2,}|\bAuthors?\s*:', candidate, maxsplit=1, flags=re.I)[0].strip()
         if candidate and len(candidate) >= 8:
             parent_title = candidate[:300]
             score += 0.15
             reasons.append('首页包含“Supplementary … for <母文章>”结构')
 
-    
-    
-    
-    
-    
-    
+
     if strong_header and not parent_title:
         lines = [line.strip() for line in first.splitlines()]
         try:
@@ -115,8 +110,7 @@ def detect_supplement(
             reasons.append('Supporting Information 标题后的首个有效文本行作为母文章标题候选')
             break
 
-    
-    
+
     marker_count = sum(1 for marker in MAIN_ARTICLE_MARKERS if marker in lower)
     if marker_count >= 2:
         score -= 0.55
@@ -124,14 +118,12 @@ def detect_supplement(
     elif marker_count == 1:
         score -= 0.20
 
-    
-    
+
     if ASSOCIATED_CONTENT_RE.search(source):
         score -= 0.35
         reasons.append('仅在 Associated Content 中引用 Supporting Information，倾向主文章')
 
-    
-    
+
     if re.search(r'(?im)^\s*\*?s\s+supporting\s+information\s*$', first) and 'abstract:' in first.casefold() and not strong_header:
         score -= 0.25
         reasons.append('首页“S Supporting Information”与主文摘要共存，不单独视为补充材料')
@@ -140,8 +132,8 @@ def detect_supplement(
     is_supplement = bool(relation) or score >= 0.65
 
     if is_supplement and not parent_doi:
-        
-        
+
+
         parent_doi = normalize_doi(extracted_doi)
         if parent_doi:
             reasons.append('将文档内 DOI 作为母文章 DOI 候选')

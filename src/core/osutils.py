@@ -9,7 +9,7 @@ from pathlib import Path
 def open_path(path: str | Path) -> None:
     target = str(Path(path).expanduser().resolve())
     if os.name == 'nt':
-        os.startfile(target)  
+        os.startfile(target)
     elif sys.platform == 'darwin':
         subprocess.Popen(['open', target])
     else:
@@ -23,4 +23,5 @@ def reveal_path(path: str | Path) -> None:
     elif sys.platform == 'darwin':
         subprocess.Popen(['open', '-R', str(target)])
     else:
+        open_path(target.parent)
         open_path(target.parent)

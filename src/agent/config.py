@@ -16,7 +16,7 @@ SAFE_AGENT_TOOLS = ('Read', 'Edit', 'Write', 'Glob', 'Grep')
 
 
 class AgentConfig:
-    
+
 
     SCHEMA_VERSION = 1
 
@@ -137,4 +137,5 @@ class AgentConfig:
             'strictMcp': True,
             'safeWrites': True,
         })
+        self.save()
         self.save()

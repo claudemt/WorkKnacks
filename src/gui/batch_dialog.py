@@ -12,7 +12,7 @@ from .widgets import ProgressBar
 
 
 class BatchDialog(tk.Toplevel):
-    
+
 
     def __init__(self, parent, root: str | Path, on_organize, on_summarize=None, on_done=None):
         super().__init__(parent)
@@ -47,8 +47,8 @@ class BatchDialog(tk.Toplevel):
 
         self.progress = ProgressBar(body)
         self.progress.pack(fill=tk.X, pady=(10, 0))
-        
-        
+
+
         self._progress_cb = lambda done, total, message: self.progress.set(done, total, message)
 
     def _refresh(self):
@@ -61,7 +61,7 @@ class BatchDialog(tk.Toplevel):
                 continue
             seen.add(path)
             paths.append(path)
-        
+
         for entry in self.index.entries():
             for attachment in entry.attachments:
                 if not attachment.path or not entry.folder:
@@ -73,7 +73,10 @@ class BatchDialog(tk.Toplevel):
         self.listbox.delete(0, tk.END)
         for path in self.paths:
             self.listbox.insert(tk.END, path.relative_to(self.root_path).as_posix())
-        self.select_all_var.set(False)
+        # 默认全选：打开即选全部 PDF
+        if self.paths:
+            self.listbox.selection_set(0, tk.END)
+        self.select_all_var.set(bool(self.paths))
 
     def _is_generated_pdf(self, path: Path) -> bool:
         try:
@@ -130,4 +133,5 @@ class BatchDialog(tk.Toplevel):
         if not path:
             return
         export_bibtex(entries, path)
+        messagebox.showinfo('导出 BibTeX', f'已导出 {len(entries)} 条记录。', parent=self)
         messagebox.showinfo('导出 BibTeX', f'已导出 {len(entries)} 条记录。', parent=self)

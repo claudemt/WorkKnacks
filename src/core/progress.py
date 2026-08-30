@@ -11,8 +11,8 @@ class ProgressManager:
         self.state_path.parent.mkdir(parents=True, exist_ok=True)
         self.state = self._load()
         self.namespace = str(namespace or 'default')
-        
-        
+
+
         self._hash_cache = {}
         self._save_every = save_every
         self._since_save = 0
@@ -76,4 +76,5 @@ class ProgressManager:
     def total_cached(self, file_path: str) -> int:
         fh = self.file_hash(file_path)
         return len(self.state.get(fh, {}))
+
 

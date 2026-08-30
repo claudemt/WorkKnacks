@@ -29,7 +29,7 @@ class BaseProvider(ABC):
         ...
 
     def check_connectivity(self) -> tuple[bool, str]:
-        
+
         return self.validate_auth()
 
     def get_limits(self) -> dict:

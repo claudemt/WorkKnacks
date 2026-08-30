@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-from collections import Counter
 from typing import Iterable
 
 from .entry import LibraryEntry
@@ -38,23 +37,13 @@ def parse_keywords_from_note(markdown: str, limit: int = 8) -> list[str]:
                 tail = lines[i + 1].strip()
             values = re.split(r'[,，;；、|/]+', tail)
             return _dedupe(values)[:limit]
-    
+
     match = re.search(r'(?:关键词|keywords)\s*[:：]\s*([^\n]+)', str(markdown or ''), flags=re.I)
     return _dedupe(re.split(r'[,，;；、|/]+', match.group(1)))[:limit] if match else []
 
 
 def merge_tags(entry: LibraryEntry, tags: Iterable[str]) -> LibraryEntry:
     entry.tags = _dedupe([*entry.tags, *tags])
-    entry.touch()
-    return entry
-
-
-def set_reading_status(entry: LibraryEntry, status: str) -> LibraryEntry:
-    aliases = {'未读': 'unread', '已读': 'read', '精读': 'deep-read'}
-    normalized = aliases.get(status, status)
-    if normalized not in {'unread', 'read', 'deep-read'}:
-        raise ValueError('阅读状态必须是 unread/read/deep-read（未读/已读/精读）')
-    entry.reading_status = normalized
     entry.touch()
     return entry
 

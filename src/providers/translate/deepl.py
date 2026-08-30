@@ -1,4 +1,4 @@
-import uuid, time, sys, io
+import uuid, time
 from ..base import TranslationProvider, ProviderMeta, ProviderRegistry
 
 class DeepLTranslateProvider(TranslationProvider):

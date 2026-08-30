@@ -10,7 +10,7 @@ from .layout import fit_window
 
 
 class ProjectSkillDialog(tk.Toplevel):
-    
+
 
     def __init__(self, parent, root: str | Path):
         super().__init__(parent)
@@ -131,7 +131,7 @@ class ProjectSkillDialog(tk.Toplevel):
         except Exception:
             pass
         if not _valid_skill_name(name):
-            
+
             name = source.stem.strip()
         if not _valid_skill_name(name):
             messagebox.showerror('导入', f'无法从文件推导 Skill 名称：{source.name}', parent=self)

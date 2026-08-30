@@ -8,8 +8,15 @@ from pathlib import Path
 from .artifacts import ArtifactLayout, artifact_relpath
 from .biblio import write_citation_bundle
 from .entry import Attachment, LibraryEntry, normalize_doi
+from .history import HistoryStore
 from .index import LibraryIndex
+from .parts import parse_part
 from .rename import build_name
+
+
+def _snap(root, affected, index=None) -> None:
+    """改动性操作前快照受影响路径；REALTIME_BACKUP=0 时退化为 no-op。"""
+    HistoryStore(root).before_mutation(affected, index)
 
 
 @dataclass(slots=True)
@@ -30,7 +37,7 @@ def archive_pdf(
     index: LibraryIndex | None = None,
     template: str | None = None,
 ) -> ArchiveResult:
-    
+
     root_path, source = _validate_pdf(root, src)
     library_index = index or LibraryIndex(root_path)
     duplicate, reason, _score = library_index.find_duplicate(entry)
@@ -41,9 +48,11 @@ def archive_pdf(
 
     original_name = source.name
     old_stem = source.stem
+    sidecars = _existing_sidecars(source.parent, old_stem)
     if existing:
         entry = _merge_entry(existing, entry)
         folder = root_path / entry.folder
+        _snap(root_path, [source, *[p for _, p in sidecars], folder], library_index)
         folder.mkdir(parents=True, exist_ok=True)
         base = folder.name
         pdf = folder / f'{base}.pdf'
@@ -53,9 +62,9 @@ def archive_pdf(
     else:
         base = build_name(entry, template or library_index.rename_template)
         folder, pdf, conflict_index = _resolve_target(root_path, base, source)
+        _snap(root_path, [source, *[p for _, p in sidecars], folder], library_index)
         folder.mkdir(parents=True, exist_ok=True)
 
-    sidecars = _existing_sidecars(source.parent, old_stem)
     if source.resolve() != pdf.resolve():
         shutil.move(str(source), str(pdf))
     artifact_map = _move_sidecars(sidecars, folder, old_stem, pdf.stem)
@@ -89,9 +98,11 @@ def archive_supplement(
     parent_doi: str = '',
     supplement_doi: str = '',
 ) -> ArchiveResult:
-    
+
     root_path, source = _validate_pdf(root, src)
     library_index = index or LibraryIndex(root_path)
+    old_stem = source.stem
+    sidecars = _existing_sidecars(source.parent, old_stem)
     duplicate, reason, _score = library_index.find_duplicate(parent_entry)
     if duplicate and reason == 'title' and parent_entry.doi and duplicate.doi and parent_entry.doi != duplicate.doi:
         duplicate = None
@@ -101,13 +112,12 @@ def archive_supplement(
     else:
         entry = parent_entry
         folder = root_path / build_name(entry, template or library_index.rename_template)
+    _snap(root_path, [source, *[p for _, p in sidecars], folder], library_index)
     folder.mkdir(parents=True, exist_ok=True)
     entry.folder = folder.relative_to(root_path).as_posix()
 
     target = _supplement_target(folder, folder.name, source)
     original_name = source.name
-    old_stem = source.stem
-    sidecars = _existing_sidecars(source.parent, old_stem)
     if source.resolve() != target.resolve():
         shutil.move(str(source), str(target))
     artifact_map = _move_sidecars(sidecars, folder, old_stem, target.stem)
@@ -115,8 +125,8 @@ def archive_supplement(
     normalized_parent_doi = normalize_doi(parent_doi or entry.doi or '')
     normalized_supplement_doi = normalize_doi(supplement_doi or '')
     if normalized_supplement_doi and normalized_supplement_doi == normalized_parent_doi:
-        
-        
+
+
         normalized_supplement_doi = ''
     supplement_attachment = entry.add_attachment(Attachment(
         path=target.name,
@@ -144,6 +154,110 @@ def archive_supplement(
     return ArchiveResult(entry=entry, folder=folder, pdf=target, original=source, conflict_index=0, document_role='supplement')
 
 
+def archive_part_merge(
+    root: str | os.PathLike[str],
+    src: str | os.PathLike[str],
+    parent_entry: LibraryEntry,
+    *,
+    index: LibraryIndex | None = None,
+    template: str | None = None,
+    part=None,
+) -> ArchiveResult:
+
+    root_path, source = _validate_pdf(root, src)
+    library_index = index or LibraryIndex(root_path)
+    if not part or not part.base:
+        raise ValueError('无法识别分卷标记')
+    new_marker = str(part.marker or '')
+    for att in parent_entry.attachments:
+        if att.path:
+            existing = parse_part(Path(att.path).stem)
+            if existing and existing.marker == new_marker:
+                raise ValueError(f'该分卷标记 {new_marker} 已存在于条目中，跳过并入')
+
+    entry = parent_entry
+    entry.title = part.base
+    new_base = build_name(entry, template or library_index.rename_template)
+    old_folder = (root_path / entry.folder) if entry.folder else None
+    current_pdf = None
+    if old_folder and entry.files.get('pdf'):
+        current_pdf = old_folder / str(entry.files['pdf'])
+    if old_folder and old_folder.name == new_base:
+        target_folder = old_folder
+    else:
+        target_folder, _, _ = _resolve_target(
+            root_path, new_base, current_pdf or source, allow_current=old_folder
+        )
+    sidecars = _existing_sidecars(source.parent, source.stem)
+    affected = [source, *[p for _, p in sidecars]]
+    if old_folder:
+        affected.append(old_folder)
+    if target_folder != old_folder:
+        affected.append(target_folder)
+    _snap(root_path, affected, library_index)
+    if old_folder and old_folder.exists() and old_folder.resolve() != target_folder.resolve():
+        target_folder.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(old_folder), str(target_folder))
+        source = target_folder / source.name
+    elif not target_folder.exists():
+        target_folder.mkdir(parents=True, exist_ok=True)
+    entry.folder = target_folder.relative_to(root_path).as_posix()
+
+
+    renames: dict[str, str] = {}
+    old_pdf_name = str(entry.files.get('pdf') or '')
+    if old_pdf_name:
+        old_pdf = target_folder / old_pdf_name
+        new_pdf_name = _part_target_name(new_base, old_pdf)
+        if new_pdf_name != old_pdf_name and old_pdf.exists():
+            old_pdf.rename(target_folder / new_pdf_name)
+        renames[old_pdf_name] = new_pdf_name
+        entry.files['pdf'] = new_pdf_name
+        primary = entry.primary_attachment
+        if primary and primary.path == old_pdf_name:
+            primary.path = new_pdf_name
+    for att in entry.attachments:
+        if att.role != 'part' or not att.path:
+            continue
+        old_path = target_folder / att.path
+        new_name = _part_target_name(new_base, old_path)
+        if new_name != att.path and old_path.exists():
+            old_path.rename(target_folder / new_name)
+        renames[att.path] = new_name
+        att.path = new_name
+
+    target = target_folder / (new_base + new_marker + source.suffix)
+    if target.exists() and target.resolve() != source.resolve():
+        target = _unique_file_target(target)
+    original_name = source.name
+    sidecars = _existing_sidecars(source.parent, source.stem)
+    if source.resolve() != target.resolve():
+        shutil.move(str(source), str(target))
+    artifact_map = _move_sidecars(sidecars, target_folder, source.stem, target.stem)
+
+    entry.add_attachment(Attachment(
+        path=target.name,
+        role='part',
+        title=str(part.marker or ''),
+        relation='isPartOf',
+        artifacts=artifact_map,
+    ))
+    entry.files['parts'] = [a.path for a in entry.attachments if a.role == 'part' and a.path]
+    library_index.upsert(entry, save=False)
+    _rebuild_entry_mappings(library_index, entry, root_path)
+    library_index.save()
+    write_citation_bundle(target_folder, entry)
+    return ArchiveResult(entry=entry, folder=target_folder, pdf=target, original=source, conflict_index=0, document_role='part')
+
+
+def _part_target_name(new_base: str, path: Path) -> str:
+    marker = ''
+    parsed = parse_part(path.stem)
+    if parsed:
+        marker = parsed.marker
+    return new_base + marker + (path.suffix or '.pdf')
+
+
 def rename_archived_entry(
     root: str | os.PathLike[str],
     entry: LibraryEntry,
@@ -154,7 +268,7 @@ def rename_archived_entry(
     library_index = index or LibraryIndex(root_path)
     current_pdf = root_path / entry.folder / str(entry.files.get('pdf') or '')
     if not current_pdf.exists():
-        
+
         if entry.folder and entry.supplementary_attachments:
             return _rename_supplement_only_parent(root_path, entry, library_index, template)
         raise FileNotFoundError(str(current_pdf))
@@ -163,7 +277,19 @@ def rename_archived_entry(
     old_stem = current_pdf.stem
     base = build_name(entry, template or library_index.rename_template)
     target_folder, target_pdf, conflict_index = _resolve_target(root_path, base, current_pdf, allow_current=old_folder)
+    if any(att.role == 'part' for att in entry.attachments):
+        primary_marker = ''
+        parsed = parse_part(old_stem)
+        if parsed:
+            primary_marker = parsed.marker
+        if primary_marker:
+            target_pdf = target_folder / (target_folder.name + primary_marker + (Path(old_name).suffix or '.pdf'))
 
+    _snap(
+        root_path,
+        [old_folder, *[p for _, p in _existing_sidecars(old_folder, old_stem)], *([target_folder] if target_folder != old_folder else [])],
+        library_index,
+    )
     if target_folder != old_folder:
         target_folder.parent.mkdir(parents=True, exist_ok=True)
         shutil.move(str(old_folder), str(target_folder))
@@ -225,6 +351,24 @@ def _rename_supplement_attachments(folder: Path, old_base: str, new_base: str, e
         if artifact_map:
             attachment.artifacts.update(artifact_map)
     entry.files['supplements'] = [a.path for a in supplements if a.path]
+    for attachment in entry.attachments:
+        if attachment.role != 'part' or not attachment.path:
+            continue
+        old = folder / attachment.path
+        if not old.exists():
+            continue
+        old_stem = old.stem
+        sidecars = _existing_sidecars(folder, old_stem)
+        target = folder / _part_target_name(new_base, old)
+        if target.resolve() != old.resolve():
+            if target.exists():
+                target = _unique_file_target(target)
+            old.rename(target)
+        attachment.path = target.name
+        artifact_map = _move_sidecars(sidecars, folder, old_stem, target.stem)
+        if artifact_map:
+            attachment.artifacts.update(artifact_map)
+    entry.files['parts'] = [a.path for a in entry.attachments if a.role == 'part' and a.path]
 
 
 def _rebuild_entry_mappings(index: LibraryIndex, entry: LibraryEntry, root: Path) -> None:
@@ -236,14 +380,16 @@ def _rebuild_entry_mappings(index: LibraryIndex, entry: LibraryEntry, root: Path
     if entry.files.get('pdf'):
         rel = (Path(entry.folder) / str(entry.files['pdf'])).as_posix()
         index.record_mapping(rel, entry=entry, original_name=Path(str(entry.files['pdf'])).name, folder=entry.folder, status='organized', save=False)
-    for attachment in entry.supplementary_attachments:
+    for attachment in entry.attachments:
+        if attachment.role not in ('supplement', 'part') or not attachment.path:
+            continue
         rel = (Path(entry.folder) / attachment.path).as_posix()
         index.record_mapping(rel, entry=entry, original_name=Path(attachment.path).name, folder=entry.folder, status='supplement', save=False)
 
 
 def _merge_entry(existing: LibraryEntry, incoming: LibraryEntry) -> LibraryEntry:
-    
-    
+
+
     for field in (
         'item_type', 'title', 'year', 'date', 'publication_title', 'publisher', 'place', 'edition', 'isbn', 'volume', 'issue',
         'pages', 'doi', 'arxiv_id', 'abstract', 'language', 'url',
@@ -321,7 +467,7 @@ def _replace_attachment_path(entry: LibraryEntry, old: str, new: str, role: str 
 
 
 def _existing_sidecars(parent: Path, stem: str) -> list[tuple[str, Path]]:
-    
+
     pseudo = parent / f'{stem}.pdf'
     layout = ArtifactLayout.for_source(pseudo)
     candidates: list[tuple[str, Path]] = [
@@ -339,7 +485,7 @@ def _move_sidecars(
     old_stem: str,
     new_stem: str,
 ) -> dict[str, object]:
-    
+
     target_layout = ArtifactLayout.for_source(target_folder / f'{new_stem}.pdf')
     artifact_map: dict[str, object] = {}
     translation_paths: list[str] = []
@@ -387,7 +533,6 @@ def _apply_attachment_artifacts(
     note_path = artifacts.get('note')
     if note_path and isinstance(entry.ai_note, dict):
         entry.ai_note['path'] = str(note_path)
-
 
 
 def _unique_sidecar_target(target: Path) -> Path:

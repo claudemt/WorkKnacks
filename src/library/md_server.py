@@ -14,7 +14,7 @@ from .md_render import BASE_CSS, HIGHLIGHT, MATHJAX, markdown_to_fragment, md_fi
 
 
 class MarkdownServer:
-    
+
 
     def __init__(self, root: str | Path):
         self.root = Path(root).expanduser().resolve()
@@ -91,7 +91,7 @@ class MarkdownServer:
             def log_message(self, _format: str, *args) -> None:
                 return
 
-            def do_GET(self) -> None:  
+            def do_GET(self) -> None:
                 parsed = urllib.parse.urlparse(self.path)
                 query = urllib.parse.parse_qs(parsed.query)
                 try:
@@ -107,9 +107,6 @@ class MarkdownServer:
                         path = server._resolve((query.get('path') or [''])[0])
                         self._html(_editor_html(path, server.token, path.read_text(encoding='utf-8', errors='replace')))
                         return
-                    if parsed.path == '/health':
-                        self._json({'ok': True})
-                        return
                     self.send_error(HTTPStatus.NOT_FOUND)
                 except FileNotFoundError:
                     self.send_error(HTTPStatus.NOT_FOUND)
@@ -118,7 +115,7 @@ class MarkdownServer:
                 except Exception as exc:
                     self.send_error(HTTPStatus.INTERNAL_SERVER_ERROR, str(exc))
 
-            def do_POST(self) -> None:  
+            def do_POST(self) -> None:
                 parsed = urllib.parse.urlparse(self.path)
                 length = min(int(self.headers.get('Content-Length') or 0), 20_000_000)
                 try:
@@ -167,7 +164,7 @@ class MarkdownServer:
 
 def _editor_html(path: Path, token: str, source: str) -> str:
     relative_path = path.name
-    
+
     return f'''<!doctype html>
 <html lang="zh-CN">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">

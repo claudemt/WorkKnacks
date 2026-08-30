@@ -30,7 +30,7 @@ class ParsedMentions:
 
 
 def parse_mentions(text: str) -> ParsedMentions:
-    
+
     source = str(text or '')
     matches = list(MENTION_RE.finditer(source))
     mentions: list[Mention] = []

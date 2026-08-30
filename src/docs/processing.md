@@ -4,13 +4,13 @@
 
 ## 第一次使用：配置 MinerU 和翻译服务
 
-主界面点击 **配置**。这个窗口只管理两类必要运行服务。
+主界面点击 **设置**。这个窗口只管理两类必要运行服务。
 
 ### MinerU
 
 正式 PDF 解析使用 MinerU 标准 `extract`，需要安装 `mineru-open-api` 并完成鉴权。两种方式任选一种：
 
-- 在 **配置** 中填写 MinerU Token；
+- 在 **设置** 中填写 MinerU Token；
 - 或在终端执行 `mineru-open-api auth`，让 MinerU CLI 自己保存登录状态。
 
 GUI 保存的 Token 位于本机：
@@ -30,7 +30,7 @@ MINERU_TOKEN=
 
 ### 翻译服务
 
-**配置 → 默认服务** 可以选择：
+**设置 → 默认服务** 可以选择：
 
 - **DeepL**：当前内置通道无需填写 API Key；
 - **本地翻译 API**：填写本地 HTTP 地址和超时；

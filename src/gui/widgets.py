@@ -39,14 +39,13 @@ class LogView(ttk.LabelFrame):
         self.after(100, self._poll)
 
     def _append_many(self, items):
-        
-        
-        
+
+
         self.text.configure(state=tk.NORMAL)
         anchor = self.text.index('end-1c')
         ts = datetime.now().strftime('%H:%M:%S')
         plain = ''
-        ranges = []  
+        ranges = []
         for message, level in items:
             start = len(plain)
             plain += f'[{ts}] {message}\n'
@@ -115,4 +114,5 @@ class ProgressBar(ttk.Frame):
             self.bar.stop()
         except Exception:
             pass
+        self.bar.configure(mode='determinate')
         self.bar.configure(mode='determinate')

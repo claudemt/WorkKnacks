@@ -46,7 +46,7 @@ class Creator:
 @dataclass(slots=True)
 class Attachment:
     path: str = ''
-    role: str = 'other'  
+    role: str = 'other'
     title: str = ''
     content_type: str = 'application/pdf'
     doi: str = ''
@@ -170,7 +170,7 @@ class LibraryEntry:
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
-        
+
         data['itemType'] = data.pop('item_type')
         data['publicationTitle'] = data.pop('publication_title')
         data['arxivId'] = data.pop('arxiv_id')
@@ -205,7 +205,7 @@ class LibraryEntry:
         for old, new in aliases.items():
             if old in payload and new not in payload:
                 payload[new] = payload.pop(old)
-        known = set(cls.__dataclass_fields__)  
+        known = set(cls.__dataclass_fields__)
         extra_unknown = {k: v for k, v in payload.items() if k not in known}
         payload = {k: v for k, v in payload.items() if k in known}
         payload['creators'] = combined
@@ -256,8 +256,6 @@ def normalize_arxiv(value: str | None) -> str:
     return text
 
 
-def creators_from_names(names: Iterable[str], creator_type: str = 'author') -> list[Creator]:
-    return [Creator.from_any(name, creator_type) for name in names if str(name).strip()]
 
 
 def _clean_list(values: Iterable[Any] | None) -> list[str]:

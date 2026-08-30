@@ -3,12 +3,11 @@ import time
 
 from .progress import ProgressManager
 from .tokenizer import (
-    GLOSSARY, assemble, build_chunks, tokenize, tokenize_markdown,
+    GLOSSARY, assemble, build_chunks,
 )
 from .chunker import TextChunker
 from .academic_translation import AcademicLatexPlan, AcademicMarkdownPlan, translate_segment_preserving_tokens
 
-PLAIN_FORMATS = ('.txt', '.srt', '.vtt', '.json', '.csv')
 MD_FORMATS = ('.md', '.markdown')
 
 
@@ -49,19 +48,17 @@ def translate_file(file_path: str, provider, target_lang: str = 'zh-Hans',
     os.makedirs(os.path.dirname(os.path.abspath(output_path)) or '.', exist_ok=True)
     with open(output_path, 'w', encoding='utf-8') as f:
         f.write(result)
-    
-    
-    
+
+
     if progress:
         progress.invalidate(file_path)
     return output_path
 
 
-
 def _translate_academic_latex(file_path: str, content: str, provider, target_lang,
                               source_lang, progress, progress_cb, cancel_flag,
                               usage_cb) -> str:
-    
+
     max_chars = provider.meta.max_chunk_chars or 1350
     plan = AcademicLatexPlan.build(content, max_chars=max_chars)
     units = plan.translatable_segments
@@ -95,7 +92,7 @@ def _translate_academic_latex(file_path: str, content: str, provider, target_lan
 def _translate_academic_markdown(file_path: str, content: str, provider, target_lang,
                                  source_lang, progress, progress_cb, cancel_flag,
                                  usage_cb) -> str:
-    
+
     max_chars = provider.meta.max_chunk_chars or 1350
     plan = AcademicMarkdownPlan.build(content, max_chars=max_chars)
     units = plan.translatable_segments
@@ -159,7 +156,7 @@ def _translate_tokens(file_path: str, tokens, provider, target_lang,
 
 
 def _translate_chunk(provider, chunk, target_lang, source_lang) -> str:
-    
+
 
     pieces = chunk['pieces']
     text = '\n'.join(piece for _, piece in pieces)
@@ -167,8 +164,7 @@ def _translate_chunk(provider, chunk, target_lang, source_lang) -> str:
     if translated.count('\n') == len(pieces) - 1:
         return translated
 
-    
-    
+
     parts = []
     for _, piece in pieces:
         parts.append(_call_with_retry(provider, piece, target_lang, source_lang))
@@ -209,7 +205,7 @@ def _translate_plain(file_path: str, content: str, provider, target_lang,
 
 
 def estimate_job(file_path: str, provider) -> dict:
-    
+
 
     with open(file_path, encoding='utf-8') as f:
         content = f.read()
@@ -256,4 +252,5 @@ def _pace(provider):
 
     rps = provider.meta.max_chunks_per_sec or 1.0
     if rps > 0:
+        time.sleep(1.0 / rps)
         time.sleep(1.0 / rps)

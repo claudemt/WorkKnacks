@@ -8,7 +8,7 @@ from src.core.workspace import ProjectWorkspace
 from src.library.index import LibraryIndex
 
 
-PDF_ACTIONS = [('view', '查看'), ('info', '信息'), ('translate', '翻译'), ('ai', 'AI')]
+PDF_ACTIONS = [('view', '查看'), ('info', '信息'), ('translate', '翻译'), ('parse', '解析'), ('ai', 'AI')]
 MD_ACTIONS = [('view', '查看'), ('md_edit', '编辑'), ('ai', 'AI')]
 TXT_ACTIONS = [('view', '查看'), ('translate', '翻译'), ('ai', 'AI')]
 MEDIA_EXTS = {'.mp3', '.wav', '.m4a', '.mp4', '.mkv', '.mov'}
@@ -75,7 +75,7 @@ class ExplorerView(ttk.Frame):
 
 
 class FileRow(ttk.Frame):
-    
+
 
     def __init__(self, parent, path: Path, is_dir: bool, workspace: ProjectWorkspace, on_select, on_action, managed_dir: bool = False):
         super().__init__(parent, padding=(8, 8), relief=tk.GROOVE, borderwidth=1)
@@ -111,7 +111,7 @@ class FileRow(ttk.Frame):
         bind_recursive(self.name_label, '<Button-3>', self._context_menu)
 
     def set_selected(self, selected: bool) -> None:
-        
+
         self.configure(relief=tk.SUNKEN if selected else tk.GROOVE)
 
     def _resize_name(self, event=None):
@@ -140,10 +140,10 @@ class FileRow(ttk.Frame):
                 menu.add_command(label='润色', command=lambda: self.on_action('polish', self.path))
         menu.add_separator()
         menu.add_command(label='重命名  F2', command=lambda: self.on_action('rename', self.path))
-        menu.add_command(label='复制路径', command=lambda: self.on_action('copy_path', self.path))
-        menu.add_command(label='在资源管理器中显示', command=lambda: self.on_action('reveal', self.path))
+        menu.add_command(label='复制路径  Shift+Alt+C', command=lambda: self.on_action('copy_path', self.path))
+        menu.add_command(label='在资源管理器中显示  Shift+Alt+R', command=lambda: self.on_action('reveal', self.path))
         menu.add_separator()
-        menu.add_command(label='删除', command=lambda: self.on_action('delete', self.path))
+        menu.add_command(label='删除  Del', command=lambda: self.on_action('delete', self.path))
         menu.tk_popup(event.x_root, event.y_root)
 
 
@@ -157,7 +157,6 @@ def _actions_for(path: Path):
         return TXT_ACTIONS
     if suffix in MEDIA_EXTS:
         return [('view', '查看'), ('ai', 'AI')]
-    return [('view', '查看'), ('ai', 'AI')]
 
 
 def _icon(path: Path) -> str:

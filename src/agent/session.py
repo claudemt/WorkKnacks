@@ -36,7 +36,7 @@ class SessionInfo:
 
 
 class SessionStore:
-    
+
 
     VERSION = 4
 
@@ -179,7 +179,7 @@ class SessionStore:
             self._save_meta_locked()
 
     def revision(self) -> tuple[int, int]:
-        
+
         try:
             stat = self.meta_path.stat()
             return stat.st_mtime_ns, stat.st_size

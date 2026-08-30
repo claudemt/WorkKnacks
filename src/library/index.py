@@ -7,7 +7,6 @@ from datetime import datetime
 from difflib import SequenceMatcher
 from pathlib import Path
 from threading import RLock
-from typing import Iterable
 
 from .entry import LibraryEntry, normalize_doi
 from .rename import DEFAULT_RENAME_TEMPLATE
@@ -22,7 +21,7 @@ def _now() -> str:
 
 
 class LibraryIndex:
-    
+
 
     def __init__(self, root: str | os.PathLike[str]):
         self.root = Path(root).expanduser().resolve()
@@ -48,7 +47,7 @@ class LibraryIndex:
         try:
             data = json.loads(self.path.read_text(encoding='utf-8'))
         except (OSError, json.JSONDecodeError):
-            
+
             return self._new()
         if not isinstance(data, dict) or int(data.get('version') or 0) != INDEX_VERSION:
             return self._new()
@@ -73,7 +72,7 @@ class LibraryIndex:
             payload = json.dumps(self.data, ensure_ascii=False, indent=2, sort_keys=False)
             temp.write_text(payload, encoding='utf-8')
             if self.path.exists():
-                
+
                 try:
                     json.loads(self.path.read_text(encoding='utf-8'))
                 except Exception:
@@ -193,7 +192,7 @@ class LibraryIndex:
         return None
 
     def remap_folder_prefix(self, old_relative: str, new_relative: str, save: bool = True) -> int:
-        
+
         old = Path(old_relative).as_posix().strip('/')
         new = Path(new_relative).as_posix().strip('/')
         if not old or not new:
@@ -227,7 +226,7 @@ class LibraryIndex:
         return changed
 
     def remove_folder_prefix(self, relative: str, save: bool = True) -> int:
-        
+
         prefix = Path(relative).as_posix().strip('/')
         if not prefix:
             return 0
@@ -281,7 +280,7 @@ class LibraryIndex:
         return [entry for _, entry in sorted(scored, key=lambda item: (-item[0], item[1].title.casefold()))]
 
     def self_heal(self) -> int:
-        
+
         changed = 0
         for rel, mapping in self.data.get('mappings', {}).items():
             if mapping.get('status') not in {'organized', 'supplement'}:

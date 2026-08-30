@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import queue
 import shutil
 import threading
@@ -14,7 +13,7 @@ from src.core.project_paths import ProjectPaths
 from src.core.workspace import ProjectWorkspace
 from src.library.ai_note import generate_note
 from src.library.artifacts import ArtifactLayout, artifact_relpath
-from src.library.archive import archive_pdf, archive_supplement, rename_archived_entry
+from src.library.archive import archive_part_merge, archive_pdf, archive_supplement, rename_archived_entry
 from src.library.entry import LibraryEntry, normalize_doi
 from src.library.fetch import MetadataFetcher
 from src.library.index import LibraryIndex
@@ -22,6 +21,7 @@ from src.library.md_export import md_to_pdf
 from src.library.md_server import MarkdownServer
 from src.library.recovery import MetadataRecoveryService
 from src.library.biblio import write_citation_bundle
+from src.library.history import HistoryStore
 
 from . import docs_viewer
 from .agent_panel import AgentPanel
@@ -43,8 +43,15 @@ class MainWindow(tk.Tk):
         self.bind('<F11>', self._toggle_fullscreen)
         self.bind('<Escape>', self._escape_fullscreen)
         self.bind('<F2>', self._rename_selected)
+        self.bind('<Delete>', self._delete_selected)
+        self.bind('<KP_Delete>', self._delete_selected)
+        self.bind('<Control-z>', self._undo)
+        self.bind('<Control-Z>', self._undo)
+        self.bind_all('<Shift-Alt-C>', self._copy_selected_path)
+        self.bind_all('<Shift-Alt-R>', self._reveal_selected_path)
         self.workspace: ProjectWorkspace | None = None
         self.library_index: LibraryIndex | None = None
+        self.history: HistoryStore | None = None
         self.current_rel = ''
         self.md_server: MarkdownServer | None = None
         self._queue: queue.Queue = queue.Queue()
@@ -73,8 +80,10 @@ class MainWindow(tk.Tk):
         self.up_btn = ttk.Button(toolbar, text='上级', command=self._go_up, state=tk.DISABLED)
         self.up_btn.pack(side=tk.LEFT, padx=2)
         ttk.Button(toolbar, text='刷新', command=self._refresh_workspace).pack(side=tk.LEFT, padx=2)
+        self.undo_btn = ttk.Button(toolbar, text='撤回', command=self._undo, state=tk.DISABLED)
+        self.undo_btn.pack(side=tk.LEFT, padx=2)
         ttk.Button(toolbar, text='批量', command=self._open_batch).pack(side=tk.LEFT, padx=2)
-        ttk.Button(toolbar, text='配置', command=lambda: open_config(self, self._refresh_workspace)).pack(side=tk.LEFT, padx=2)
+        ttk.Button(toolbar, text='设置', command=lambda: open_config(self, self._refresh_workspace)).pack(side=tk.LEFT, padx=2)
         ttk.Button(toolbar, text='帮助', command=lambda: docs_viewer.open_docs('index')).pack(side=tk.RIGHT, padx=2)
 
         ttk.Separator(self).pack(fill=tk.X)
@@ -141,9 +150,8 @@ class MainWindow(tk.Tk):
             current = self.panes.sashpos(0)
         except tk.TclError:
             return
-        
-        
-        
+
+
         min_main = min(620, max(520, width - 380))
         min_agent = min(430, max(350, width // 3))
         lower = min_main
@@ -159,7 +167,7 @@ class MainWindow(tk.Tk):
         width = self.panes.winfo_width()
         if width < 100:
             return
-        
+
         target = max(520, min(int(width * 0.62), width - 350))
         try:
             self.panes.sashpos(0, target)
@@ -172,6 +180,8 @@ class MainWindow(tk.Tk):
         self.project_name.configure(text='尚未打开项目')
         self.nav_label.configure(text='/')
         self.agent_panel.set_workspace(None)
+        self.history = None
+        self._refresh_undo_state()
 
     def _set_workspace(self, root):
         try:
@@ -186,6 +196,7 @@ class MainWindow(tk.Tk):
         self.md_server = None
         self.workspace = workspace
         self.library_index = index
+        self.history = HistoryStore(workspace.root)
         self.current_rel = ''
         config.set('LAST_PROJECT', str(workspace.root))
         self.project_name.configure(text=workspace.root.name or str(workspace.root))
@@ -225,6 +236,23 @@ class MainWindow(tk.Tk):
         self.explorer.render(self.workspace, folders, docs, self.library_index)
         self.up_btn.configure(state=tk.NORMAL if self.current_rel else tk.DISABLED)
         self.nav_label.configure(text='/' + self.current_rel if self.current_rel else '/')
+        self._refresh_undo_state()
+
+    def _refresh_undo_state(self):
+        if hasattr(self, 'undo_btn') and self.undo_btn.winfo_exists():
+            state = tk.NORMAL if self.history and self.history.can_undo() else tk.DISABLED
+            self.undo_btn.configure(state=state)
+
+    def _undo(self, _event=None):
+        if not self.history or not self.history.can_undo():
+            return
+        try:
+            desc = self.history.undo(self.library_index)
+        except Exception as exc:
+            messagebox.showerror('撤回', str(exc), parent=self)
+            return
+        self._refresh_workspace()
+        messagebox.showinfo('撤回', desc or '已撤回一步', parent=self)
 
     def _go_up(self):
         if not self.current_rel:
@@ -242,6 +270,14 @@ class MainWindow(tk.Tk):
 
     def _select_path(self, path: Path):
         self._selected = path
+
+    def _copy_selected_path(self, _event=None):
+        if self._selected is not None:
+            self._handle_action('copy_path', self._selected)
+
+    def _reveal_selected_path(self, _event=None):
+        if self._selected is not None:
+            self._handle_action('reveal', self._selected)
 
 
     def _handle_action(self, action: str, path: Path):
@@ -262,6 +298,12 @@ class MainWindow(tk.Tk):
                 open_operation(
                     self, self.workspace, str(path), action,
                     on_done=lambda outputs=None, p=path, a=action: self._operation_done(p, a, outputs or []),
+                )
+            elif action == 'parse':
+                from .parse_dialog import open_parse
+                open_parse(
+                    self, self.workspace, str(path),
+                    on_done=lambda outputs=None, p=path: self._operation_done(p, 'parse', outputs or []),
                 )
             elif action == 'ai':
                 self.agent_panel.insert_file(path)
@@ -293,7 +335,7 @@ class MainWindow(tk.Tk):
             open_path(path)
 
     def _operation_done(self, source: Path, action: str, outputs: list[str]) -> None:
-        
+
         if not self.library_index or not source.exists():
             self._refresh_workspace()
             return
@@ -309,10 +351,11 @@ class MainWindow(tk.Tk):
             self._refresh_workspace()
             return
 
-        if action == 'translate':
+        if action in ('translate', 'parse'):
             parse_dir = ArtifactLayout.for_source(source).parse_dir
             if parse_dir.exists():
                 attachment.artifacts['parseDir'] = artifact_relpath(source.parent, parse_dir)
+        if action == 'translate':
             rels: list[str] = []
             for value in outputs:
                 candidate = Path(value).expanduser().resolve()
@@ -355,6 +398,7 @@ class MainWindow(tk.Tk):
             title='信息',
             auto_recognize=self._make_auto_recognize(path),
             ai_review=self._make_ai_review(path),
+            network_search=self._make_network_search(path),
             auto_on_open=bool(auto_on_open),
         )
         if confirmed:
@@ -380,6 +424,45 @@ class MainWindow(tk.Tk):
             ]))
             return LibraryEntry.from_dict(entry.to_dict()), summary
         return recognize
+
+    def _make_network_search(self, path: Path):
+        """联网搜索（OpenAlex/Crossref 合并填空）：仅按用户需求触发，不影响自动识别。"""
+        import re
+
+        from src.library.crossref import merge_network_metadata
+        root = self.workspace.root if self.workspace else path.parent
+        cache_dir = ProjectPaths.for_root(root).metadata_cache
+        _cjk = re.compile(r'[一-鿿]')
+
+        def search(entry: LibraryEntry):
+            if not entry or not entry.title:
+                return None, '标题为空，无法联网搜索。'
+            if not _cjk.search(entry.title):
+                return None, '仅对中文文献联网搜索。'
+            fetcher = MetadataFetcher(cache_dir=cache_dir)
+            authors = [c.family or c.given for c in entry.creators]
+            net = fetcher.openalex_search(entry.title, authors)
+            src = 'OpenAlex'
+            if not net:
+                net = fetcher.crossref_search(entry.title, authors)
+                src = 'Crossref'
+            if not net:
+                return None, 'OpenAlex/Crossref 未命中（需联网；书籍/扫描件通常无网络可补字段）。'
+            merged = LibraryEntry.from_dict(entry.to_dict())
+            filled = merge_network_metadata(merged, net)
+            if not filled:
+                return None, '网络命中，但期刊/卷期/页码等无新字段可补。'
+            summary = '\n'.join([
+                f'来源：{src}（命中）',
+                f'标题：{merged.title}',
+                f'作者：{", ".join(c.display() for c in merged.authors[:4]) or "—"}',
+                f'期刊：{merged.publication_title or "—"}',
+                f'卷期：{merged.volume or "?"}/{merged.issue or "?"}',
+                f'年份：{merged.year or "—"}',
+                '补全字段：' + '、'.join(filled),
+            ])
+            return merged, summary
+        return search
 
     def _make_ai_review(self, path: Path):
         root = self.workspace.root if self.workspace else path.parent
@@ -423,6 +506,33 @@ class MainWindow(tk.Tk):
             entry for entry in self.library_index.entries()
             if entry.folder and (self.library_index.root / entry.folder).resolve() == path.parent.resolve()
         ), None)
+
+        if not (supplement and supplement.is_supplement) and folder_parent and not mapping:
+            from src.library.parts import is_part_of, parse_part
+            cand_part = parse_part(path.stem) or parse_part(confirmed.title)
+            if cand_part and is_part_of(confirmed.title, folder_parent.title):
+                if messagebox.askyesno(
+                    '信息',
+                    f'识别到这是《{folder_parent.title}》的续篇/分卷（{cand_part.marker}）。\n'
+                    '是否并入该条目，并把文件夹重命名为规范正题？',
+                    parent=self,
+                ):
+                    try:
+                        archive_part_merge(
+                            self.workspace.root, path, folder_parent,
+                            index=self.library_index, part=cand_part,
+                        )
+                    except Exception as exc:
+                        messagebox.showerror('信息', str(exc), parent=self)
+                        return
+                    self._refresh_workspace()
+                    messagebox.showinfo(
+                        '信息',
+                        f'已并入：\n{self.library_index.root / folder_parent.folder}',
+                        parent=self,
+                    )
+                    return
+
         contextual_supplement = False
         if not (supplement and supplement.is_supplement) and folder_parent and not mapping:
             same_doi = bool(confirmed.doi and folder_parent.doi and confirmed.doi.strip().casefold() == folder_parent.doi.strip().casefold())
@@ -437,9 +547,8 @@ class MainWindow(tk.Tk):
                     confirmed = LibraryEntry.from_dict(folder_parent.to_dict())
 
         if (supplement and supplement.is_supplement) or contextual_supplement:
-            
-            
-            
+
+
             if supplement and supplement.is_supplement and folder_parent and not mapping:
                 detected_parent_doi = normalize_doi(supplement.parent_doi or '')
                 current_parent_doi = normalize_doi(folder_parent.doi or '')
@@ -529,12 +638,14 @@ class MainWindow(tk.Tk):
         except ValueError:
             messagebox.showerror('编辑', '请选择该文献文件夹内的 PDF。', parent=self)
             return
-        self._open_info(path, auto_on_open=True)
+        self._open_info(path)
 
     def _new_note(self, folder: Path):
         if not folder.is_dir():
             return
         notes = folder / 'notes'
+        if self.history:
+            self.history.before_mutation([notes])
         notes.mkdir(parents=True, exist_ok=True)
         for number in range(1, 10000):
             note = notes / f'note{number:02d}.md'
@@ -554,6 +665,26 @@ class MainWindow(tk.Tk):
                 messagebox.showerror('重命名', str(exc), parent=self)
         return 'break'
 
+    def _delete_selected(self, _event=None):
+        if self._editable_focus():
+            return None
+        path = self._selected
+        if path and path.exists():
+            try:
+                self._delete(path)
+            except Exception as exc:
+                messagebox.showerror('删除', str(exc), parent=self)
+        return 'break'
+
+    def _editable_focus(self) -> bool:
+        focused = self.focus_get()
+        if focused is None:
+            return False
+        return focused.winfo_class() in {
+            'Entry', 'TEntry', 'Text', 'TText', 'Spinbox', 'TSpinbox',
+            'Combobox', 'TCombobox',
+        }
+
     def _batch_organize(self, paths: list[Path], progress_cb=None):
         if not self.workspace or not self.library_index:
             return
@@ -565,9 +696,8 @@ class MainWindow(tk.Tk):
             index = LibraryIndex(root)
             total = len(paths)
             state = {'done': 0, 'ok': 0, 'errors': []}
-            
-            
-            
+
+
             lock = threading.Lock()
 
             def handle(path):
@@ -602,9 +732,15 @@ class MainWindow(tk.Tk):
                 if progress_cb:
                     progress_cb(done, total, path.name)
 
-            workers = max(1, min(6, total))
-            with ThreadPoolExecutor(max_workers=workers) as pool:
-                list(pool.map(handle, paths))
+            if self.history:
+                self.history.begin_group()
+            try:
+                workers = max(1, min(6, total))
+                with ThreadPoolExecutor(max_workers=workers) as pool:
+                    list(pool.map(handle, paths))
+            finally:
+                if self.history:
+                    self.history.end_group()
             if progress_cb:
                 progress_cb(total, total, '完成')
             self._queue.put(('batch_done', state['ok'], state['errors']))
@@ -616,21 +752,25 @@ class MainWindow(tk.Tk):
         root = self.workspace.root
 
         def worker():
-            
-            
-            
-            
+
+
             ok = 0
             errors = []
             total = len(paths)
-            for i, path in enumerate(paths, 1):
-                try:
-                    generate_note(root, path)
-                    ok += 1
-                except Exception as exc:
-                    errors.append(f'{path.name}: {exc}')
-                if progress_cb:
-                    progress_cb(i, total, path.name)
+            if self.history:
+                self.history.begin_group()
+            try:
+                for i, path in enumerate(paths, 1):
+                    try:
+                        generate_note(root, path)
+                        ok += 1
+                    except Exception as exc:
+                        errors.append(f'{path.name}: {exc}')
+                    if progress_cb:
+                        progress_cb(i, total, path.name)
+            finally:
+                if self.history:
+                    self.history.end_group()
             if progress_cb:
                 progress_cb(total, total, '完成')
             self._queue.put(('batch_note_done', ok, errors))
@@ -683,6 +823,11 @@ class MainWindow(tk.Tk):
         was_dir = path.is_dir()
         entry = self.library_index.entry_for_path(path) if not was_dir else None
         old_rel = path.relative_to(self.library_index.root).as_posix()
+        if self.history:
+            affected = [path, target]
+            if entry and entry.folder:
+                affected.append(self.library_index.root / entry.folder / 'citation.bib')
+            self.history.before_mutation(affected)
         path.rename(target)
         new_rel = target.relative_to(self.library_index.root).as_posix()
         if was_dir:
@@ -710,6 +855,11 @@ class MainWindow(tk.Tk):
         was_dir = path.is_dir()
         entry = self.library_index.entry_for_path(path) if self.library_index and not was_dir else None
         rel = path.relative_to(self.library_index.root).as_posix() if self.library_index else ''
+        if self.history:
+            affected = [path]
+            if entry and entry.folder:
+                affected.append(self.library_index.root / entry.folder / 'citation.bib')
+            self.history.before_mutation(affected)
         if was_dir:
             shutil.rmtree(path)
             if self.library_index:
@@ -767,7 +917,6 @@ class MainWindow(tk.Tk):
         super().destroy()
 
 
-
 def extract_doi_safe(text: str) -> str:
     from src.library.fetch import extract_doi
     return extract_doi(text)
@@ -779,4 +928,5 @@ def main():
 
 
 if __name__ == '__main__':
+    main()
     main()

@@ -53,7 +53,7 @@ def _neutralize_missing_figures(
     resolve: Callable[[str], str | None],
     missing_placeholder: Callable[[str], str],
 ) -> str:
-    
+
     out: list[str] = []
     i, n = 0, len(text)
     prefix = '\\pandocbounded{'
@@ -84,8 +84,8 @@ def _normalize_latex(raw_dir: Path, output_dir: Path) -> Path:
     tex_files = [p for p in raw_dir.rglob('*.tex') if p.is_file()]
     if not tex_files:
         raise RuntimeError('MinerU 标准 extract 已完成，但未找到 LaTeX 输出。请确认 CLI 支持 -f latex。')
-    
-    
+
+
     source_tex = max(tex_files, key=lambda p: (p.stat().st_size, p.stat().st_mtime_ns))
     text = source_tex.read_text(encoding='utf-8', errors='replace')
 
@@ -115,7 +115,7 @@ def _normalize_latex(raw_dir: Path, output_dir: Path) -> Path:
     missing: list[str] = []
 
     def _resolve(raw: str) -> str | None:
-        
+
         raw = raw.strip().replace('\\', '/')
         replacement = image_map.get(raw) or image_map.get(Path(raw).name)
         if replacement is None and not Path(raw).suffix:
@@ -137,15 +137,13 @@ def _normalize_latex(raw_dir: Path, output_dir: Path) -> Path:
             return _missing_placeholder(raw)
         return f'\\includegraphics{opts}{{{replacement}}}'
 
-    
-    
-    
+
     text = _neutralize_missing_figures(text, _resolve, _missing_placeholder)
     text = re.sub(r'\\includegraphics(\s*\[[^\]]*\])?\s*\{([^}]+)\}', repl, text)
     main_tex = output_dir / 'main.tex'
     main_tex.write_text(_ensure_arxiv_document(text), encoding='utf-8')
     if missing:
-        
+
         (output_dir / 'figures_missing.txt').write_text(
             '\n'.join(f'# {p}' for p in sorted(set(missing))) + '\n',
             encoding='utf-8',
@@ -166,7 +164,7 @@ def _cleanup_tex_aux(directory: Path) -> None:
 
 
 def _ensure_arxiv_document(text: str) -> str:
-    
+
     normalized = text.strip()
     if '\\documentclass' in normalized:
         return normalized + '\n'
@@ -287,7 +285,7 @@ def compile_latex(main_tex: str | Path) -> Path:
 
 
 def _page_bounds(spec: str, page_count: int) -> tuple[int, int]:
-    
+
     text = str(spec or '1-6').strip()
     match = re.fullmatch(r'(\d+)(?:\s*-\s*(\d+))?', text)
     if not match:
@@ -300,14 +298,14 @@ def _page_bounds(spec: str, page_count: int) -> tuple[int, int]:
 
 
 def _split_pdf_for_flash(source: Path, pages: str, temp_dir: Path) -> Path:
-    
+
     from pypdf import PdfReader, PdfWriter
 
     reader = PdfReader(str(source))
     start, end = _page_bounds(pages, len(reader.pages))
     if end <= start:
         raise RuntimeError('PDF 没有可用于前页识别的页面。')
-    
+
     for final in range(end, start, -1):
         writer = PdfWriter()
         for index in range(start, final):
@@ -352,9 +350,7 @@ class MinerUParseProvider(ParseProvider):
         supported_formats=['.pdf', '.png', '.jpg', '.jpeg', '.docx', '.pptx'],
     )
 
-    
-    
-    
+
     def _conn_args(self) -> list[str]:
         args: list[str] = []
         base_url = (self.config.get('MINERU_BASE_URL') or '').strip()
@@ -381,9 +377,8 @@ class MinerUParseProvider(ParseProvider):
         ok, message = self._cli_available()
         if not ok:
             return ok, message
-        
-        
-        
+
+
         try:
             verify = _run(['mineru-open-api', 'auth', '--verify', *self._conn_args()], timeout=45)
         except Exception as exc:
@@ -406,7 +401,7 @@ class MinerUParseProvider(ParseProvider):
         ocr: bool = False,
         language: str = '',
     ) -> str:
-        
+
         source = Path(input_path).expanduser().resolve()
         target = Path(output_path).expanduser().resolve()
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -458,8 +453,8 @@ class MinerUParseProvider(ParseProvider):
             if candidates:
                 shutil.copy2(candidates[0], target)
                 return str(target)
-            
-            
+
+
             stdout = (result.stdout or '').strip()
             if stdout and len(stdout) > 20:
                 target.write_text(stdout + '\n', encoding='utf-8')
@@ -474,8 +469,7 @@ class MinerUParseProvider(ParseProvider):
         if not ok:
             raise RuntimeError(message)
 
-        
-        
+
         raw = target / '.mineru-raw'
         if raw.exists():
             shutil.rmtree(raw, ignore_errors=True)

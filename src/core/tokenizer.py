@@ -209,7 +209,7 @@ def tokenize(s: str):
                         toks.extend(gt)
                         toks.append(('keep', '}'))
                     elif name in ('verb', 'lstinline'):
-                        
+
                         if j < b and not t[j].isspace():
                             delim = t[j]
                             e = t.find(delim, j + 1)
@@ -335,126 +335,11 @@ def assemble(tokens, chunks, trans_map, name: str = ''):
             out.append(content)
     return ''.join(out)
 
-def keep_tokens(tokens):
 
-    return [t for t in tokens if t[0] == 'keep']
-
-def text_tokens(tokens):
-
-    return [t for t in tokens if t[0] == 'text']
 
 _MD_IMAGE = re.compile(r'!\[[^\]]*\]\([^)]+\)')
 _MD_LINK = re.compile(r'\[[^\]]*\]\([^)]+\)')
 _MD_TAG = re.compile(r'<(sup|sub)>[^<]*</\1>', re.I)
 
-def tokenize_markdown(s: str):
-    
 
-    n = len(s)
-    tokens = []
-    buf = []
-    i = 0
-
-    def flush():
-        if buf:
-            tokens.append(('text', ''.join(buf)))
-            buf.clear()
-
-    def scan_fence(i: int) -> int:
-        marker = s[i:i + 3]
-        j = s.find('\n', i)
-        if j < 0:
-            return n
-        j += 1
-        while j < n:
-            line_end = s.find('\n', j)
-            line_end = line_end if line_end >= 0 else n
-            line = s[j:line_end]
-            if line.strip() == marker:
-                return line_end + 1 if line_end < n else n
-            j = line_end + 1 if line_end < n else n
-        return n
-
-    while i < n:
-        c = s[i]
-        if c == '\n':
-            flush()
-            tokens.append(('keep', '\n'))
-            i += 1
-        elif s.startswith('```', i) or s.startswith('~~~', i):
-            flush()
-            end = scan_fence(i)
-            tokens.append(('keep', s[i:end]))
-            i = end
-        elif s.startswith('$$', i):
-            
-            
-            e = s.find('$$', i + 2)
-            if e < 0:
-                buf.append('$')
-                i += 1
-            elif '\n' not in s[i:e] and e - i > 500:
-                buf.append('$')
-                i += 1
-            else:
-                flush()
-                tokens.append(('keep', s[i:e + 2]))
-                i = e + 2
-        elif c == '$':
-            
-            line_end = s.find('\n', i)
-            line_end = line_end if line_end >= 0 else n
-            e = s.find('$', i + 1, line_end)
-            if e < 0:
-                buf.append(c)
-                i += 1
-            else:
-                flush()
-                tokens.append(('keep', s[i:e + 1]))
-                i = e + 1
-        elif c == '`':
-            
-            line_end = s.find('\n', i)
-            line_end = line_end if line_end >= 0 else n
-            e = s.find('`', i + 1, line_end)
-            if e < 0:
-                buf.append(c)
-                i += 1
-            else:
-                flush()
-                tokens.append(('keep', s[i:e + 1]))
-                i = e + 1
-        elif s.startswith('![', i):
-            m = _MD_IMAGE.match(s, i)
-            if m:
-                flush()
-                tokens.append(('keep', m.group(0)))
-                i = m.end()
-            else:
-                buf.append(c)
-                i += 1
-        elif c == '[':
-            m = _MD_LINK.match(s, i)
-            if m:
-                flush()
-                tokens.append(('keep', m.group(0)))
-                i = m.end()
-            else:
-                buf.append(c)
-                i += 1
-        elif c == '<':
-            m = _MD_TAG.match(s, i)
-            if m:
-                flush()
-                tokens.append(('keep', m.group(0)))
-                i = m.end()
-            else:
-                buf.append(c)
-                i += 1
-        else:
-            buf.append(c)
-            i += 1
-
-    flush()
-    return tokens
 

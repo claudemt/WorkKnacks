@@ -25,6 +25,26 @@ def _safe_extract(archive: tarfile.TarFile, destination: Path) -> None:
         archive.extractall(destination)
 
 
+def _is_pdf_or_binary(data: bytes) -> bool:
+    """Return True when a payload is a PDF or binary — i.e. NOT TeX source."""
+    if not data:
+        return True
+    head = data[:4096]
+    if data[:4] in (b'%PDF', b'\x89PNG', b'PK\x03\x04'):
+        return True
+    if b'\x00' in head:
+        return True
+    return False
+
+
+def _write_plain_source(data: bytes, extract_dir: Path) -> None:
+
+
+    if _is_pdf_or_binary(data):
+        return
+    (extract_dir / _MAIN_TEX).write_bytes(data)
+
+
 def _extract_archive(data: bytes, extract_dir: Path) -> None:
     extract_dir.mkdir(parents=True, exist_ok=True)
     try:
@@ -45,11 +65,10 @@ def _extract_archive(data: bytes, extract_dir: Path) -> None:
                 return
         except tarfile.TarError:
             pass
-        (extract_dir / _MAIN_TEX).write_bytes(content)
+        _write_plain_source(content, extract_dir)
         return
 
-    if data:
-        (extract_dir / _MAIN_TEX).write_bytes(data)
+    _write_plain_source(data, extract_dir)
 
 
 def _has_documentclass(path: Path) -> bool:
@@ -61,8 +80,25 @@ def _has_documentclass(path: Path) -> bool:
     return b'\\documentclass' in head
 
 
+def _is_text_latex(path: Path) -> bool:
+    """Reject files that aren't real LaTeX (e.g. a PDF mislabeled .tex)."""
+    try:
+        with path.open('rb') as fh:
+            head = fh.read(2048)
+    except OSError:
+        return False
+    if not head:
+        return False
+    if head[:4] == b'%PDF' or b'\x00' in head:
+        return False
+    return True
+
+
 def _find_main_tex(root: Path) -> Path | None:
-    tex_files = [p for p in root.rglob('*.tex') if p.is_file() and not p.name.startswith('.')]
+    tex_files = [
+        p for p in root.rglob('*.tex')
+        if p.is_file() and not p.name.startswith('.') and _is_text_latex(p)
+    ]
     if not tex_files:
         return None
     documents = [p for p in tex_files if _has_documentclass(p)]
@@ -162,9 +198,8 @@ def _verify_candidate(meta: dict, title: str, authors=None, year=None) -> bool:
         if _author_overlap(authors, meta['authors']) < 1:
             return False
         return sim >= 0.6
-    # Without author hints only a near-identical title is trustworthy — a
-    # similarly-titled *different* paper (e.g. 'Anomalous Photon-induced...')
-    # sits at ~0.86 and must be rejected.
+
+
     return sim >= 0.9
 
 
@@ -227,24 +262,43 @@ def fetch_arxiv_source(
     if not paper_id:
         return None
     if status:
-        status('正在从 arXiv 下载预印本 TeX 源码…')
+        status(f'arXiv 编号：{paper_id}；正在从 arXiv 下载 TeX 源码…')
 
     with tempfile.TemporaryDirectory(prefix='workknacks-arxiv-') as temp_name:
         temp_root = Path(temp_name)
         try:
             archive = _download(paper_id, temp_root / 'source', timeout=timeout)
         except Exception:
+            if status:
+                status(f'arXiv 下载失败：无法获取 {paper_id} 的源码。')
+            return None
+        if status:
+            status(f'源码下载成功（{archive.stat().st_size} 字节），正在解压…')
+
+        raw = archive.read_bytes()
+
+
+        if _is_pdf_or_binary(raw):
+            if status:
+                status('arXiv 该条目返回的是 PDF 而非 TeX 源码，无法整理，将回退 MinerU。')
             return None
 
         extract_dir = temp_root / 'src'
         try:
-            _extract_archive(archive.read_bytes(), extract_dir)
+            _extract_archive(raw, extract_dir)
         except Exception:
             return None
+        if status:
+            file_count = sum(1 for _ in extract_dir.rglob('*') if _.is_file())
+            status(f'解压完成，共 {file_count} 个文件，正在定位主文档…')
 
         main_src = _find_main_tex(extract_dir)
         if main_src is None:
+            if status:
+                status('未在源码中找到 .tex 主文档，无法用 arXiv 解析。请改用 MinerU。')
             return None
+        if status:
+            status(f'已定位主文档：{main_src.name}')
 
         for child in target.iterdir():
             if child.is_dir():
@@ -253,12 +307,17 @@ def fetch_arxiv_source(
                 child.unlink(missing_ok=True)
         target.mkdir(parents=True, exist_ok=True)
         shutil.copytree(extract_dir, target, dirs_exist_ok=True)
+        if status:
+            status(f'已整理源码树到 parsed/{target.parent.name}/，正在生成 main.tex…')
 
         main_tex = target / _MAIN_TEX
         relative = main_src.relative_to(extract_dir)
         staged = target / relative
         if staged.exists() and staged.is_file():
-            shutil.copy2(staged, main_tex)
+
+
+            if staged.resolve() != main_tex.resolve():
+                shutil.copy2(staged, main_tex)
         elif main_tex.is_file():
             pass
         else:
@@ -267,5 +326,5 @@ def fetch_arxiv_source(
         if not main_tex.is_file():
             return None
         if status:
-            status('arXiv 源码下载成功，无需 MinerU。')
+            status(f'main.tex 已就绪（{main_tex.stat().st_size} 字节），arXiv 源码整理完成。')
         return main_tex

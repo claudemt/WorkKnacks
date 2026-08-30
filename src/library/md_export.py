@@ -8,7 +8,7 @@ from .md_render import md_file_to_html
 
 
 def _system_chromium() -> str | None:
-    
+
     for name in ('chromium', 'chromium-browser', 'google-chrome', 'google-chrome-stable', 'microsoft-edge', 'msedge'):
         found = shutil.which(name)
         if found:
@@ -44,7 +44,7 @@ def md_to_pdf(md_path: str | Path, output_path: str | Path | None = None) -> Pat
     target.parent.mkdir(parents=True, exist_ok=True)
     html = md_file_to_html(source)
     try:
-        from playwright.sync_api import sync_playwright  
+        from playwright.sync_api import sync_playwright
     except ImportError as exc:
         raise RuntimeError('导出 PDF 需要 playwright：pip install playwright') from exc
 
@@ -69,7 +69,7 @@ def md_to_pdf(md_path: str | Path, output_path: str | Path | None = None) -> Pat
         try:
             page = browser.new_page(viewport={'width': 1200, 'height': 1600})
             page.set_content(html, wait_until='domcontentloaded')
-            
+
             try:
                 page.wait_for_function('!window.MathJax || !MathJax.startup || MathJax.startup.promise !== undefined', timeout=5000)
                 page.evaluate('window.MathJax?.startup?.promise ? MathJax.startup.promise : Promise.resolve()')

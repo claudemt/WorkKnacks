@@ -34,6 +34,12 @@ def generate_note(
     except ValueError as exc:
         raise ValueError('PDF 必须位于项目根目录内') from exc
 
+    from .history import HistoryStore
+    _layout = ArtifactLayout.for_source(pdf)
+    HistoryStore(root_path).before_mutation(
+        [_layout.parse_dir, _layout.notes_root, pdf.parent / 'citation.bib'],
+        None,
+    )
     parsed = ensure_pdf_latex(pdf, project_root=root_path)
     if not get_skill('summarize', root_path):
         raise RuntimeError('summarize 全局 Skill 不可用')

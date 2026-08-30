@@ -15,6 +15,7 @@ ITEM_TYPES = [
 ]
 AIReview = Callable[[], tuple[LibraryEntry | None, str]]
 AutoRecognize = Callable[[], tuple[LibraryEntry | None, str]]
+NetworkSearch = Callable[[LibraryEntry], tuple[LibraryEntry | None, str]]
 
 
 class EntryDialog(tk.Toplevel):
@@ -26,6 +27,7 @@ class EntryDialog(tk.Toplevel):
         *,
         ai_review: AIReview | None = None,
         auto_recognize: AutoRecognize | None = None,
+        network_search: NetworkSearch | None = None,
         auto_on_open: bool = False,
     ):
         super().__init__(parent)
@@ -38,6 +40,7 @@ class EntryDialog(tk.Toplevel):
         self.vars: dict[str, tk.StringVar] = {}
         self.ai_review = ai_review
         self.auto_recognize = auto_recognize
+        self.network_search = network_search
 
         body = ttk.Frame(self, padding=14)
         body.pack(fill=tk.BOTH, expand=True)
@@ -116,6 +119,11 @@ class EntryDialog(tk.Toplevel):
             self.ai_btn.pack(side=tk.LEFT, padx=(6, 0))
         else:
             self.ai_btn = None
+        if network_search:
+            self.net_btn = ttk.Button(buttons, text='联网搜索', command=self._start_network_search)
+            self.net_btn.pack(side=tk.LEFT, padx=(6, 0))
+        else:
+            self.net_btn = None
         ttk.Button(buttons, text='取消', command=self._cancel).pack(side=tk.RIGHT)
         ttk.Button(buttons, text='保存', command=self._ok).pack(side=tk.RIGHT, padx=8)
         self.protocol('WM_DELETE_WINDOW', self._cancel)
@@ -175,6 +183,34 @@ class EntryDialog(tk.Toplevel):
             return
         text = summary.strip() or _entry_summary(entry)
         if messagebox.askyesno('AI复核', text + '\n\n采纳这份推荐元数据吗？', parent=self):
+            self.entry = LibraryEntry.from_dict(entry.to_dict())
+            self._load_entry()
+
+    def _start_network_search(self):
+        if not self.network_search or not self.net_btn:
+            return
+        self.net_btn.configure(state=tk.DISABLED, text='搜索中…')
+
+        def worker():
+            try:
+                entry, summary = self.network_search(self.entry)
+                self.after(0, lambda: self._finish_network_search(entry, summary, None))
+            except Exception as exc:
+                self.after(0, lambda error=exc: self._finish_network_search(None, '', error))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _finish_network_search(self, entry: LibraryEntry | None, summary: str, error: Exception | None):
+        if self.net_btn and self.winfo_exists():
+            self.net_btn.configure(state=tk.NORMAL, text='联网搜索')
+        if error:
+            messagebox.showerror('联网搜索', str(error), parent=self)
+            return
+        if entry is None:
+            messagebox.showinfo('联网搜索', summary or '未命中网络元数据。', parent=self)
+            return
+        text = summary.strip()
+        if messagebox.askyesno('联网搜索', text + '\n\n采纳这份补全吗？', parent=self):
             self.entry = LibraryEntry.from_dict(entry.to_dict())
             self._load_entry()
 
@@ -239,11 +275,12 @@ def show_entry_dialog(
     *,
     ai_review: AIReview | None = None,
     auto_recognize: AutoRecognize | None = None,
+    network_search: NetworkSearch | None = None,
     auto_on_open: bool = False,
 ) -> LibraryEntry | None:
     dialog = EntryDialog(
         parent, entry, title=title, ai_review=ai_review,
-        auto_recognize=auto_recognize, auto_on_open=auto_on_open,
+        auto_recognize=auto_recognize, network_search=network_search, auto_on_open=auto_on_open,
     )
     parent.wait_window(dialog)
     return dialog.result

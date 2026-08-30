@@ -10,7 +10,7 @@ from pathlib import Path
 
 @dataclass(frozen=True, slots=True)
 class ProjectPaths:
-    
+
 
     root: Path
 
@@ -51,6 +51,10 @@ class ProjectPaths:
         return self.internal / 'backups'
 
     @property
+    def history(self) -> Path:
+        return self.internal / 'history'
+
+    @property
     def temp(self) -> Path:
         return self.internal / 'tmp'
 
@@ -60,9 +64,9 @@ class ProjectPaths:
         return self.temp / 'agent-worktree'
 
     def ensure(self) -> 'ProjectPaths':
-        
-        
-        for path in (self.state, self.sessions, self.cache, self.backups, self.temp):
+
+
+        for path in (self.state, self.sessions, self.cache, self.backups, self.temp, self.history):
             path.mkdir(parents=True, exist_ok=True)
         return self
 
@@ -74,7 +78,7 @@ class ProjectPaths:
         return folder / f'{digest}{suffix}'
 
     def cleanup_cache(self, *, max_age_days: int = 30, max_bytes: int = 512 * 1024 * 1024) -> dict[str, int]:
-        
+
         cache = self.cache
         if not cache.exists():
             return {'removed_files': 0, 'removed_bytes': 0, 'remaining_bytes': 0}
@@ -111,7 +115,7 @@ class ProjectPaths:
                 removed_bytes += size
             except OSError:
                 pass
-        
+
         for folder in sorted((p for p in cache.rglob('*') if p.is_dir()), key=lambda p: len(p.parts), reverse=True):
             try:
                 folder.rmdir()
@@ -122,4 +126,5 @@ class ProjectPaths:
     def reset_temp(self) -> None:
         if self.temp.exists():
             shutil.rmtree(self.temp, ignore_errors=True)
+        self.temp.mkdir(parents=True, exist_ok=True)
         self.temp.mkdir(parents=True, exist_ok=True)

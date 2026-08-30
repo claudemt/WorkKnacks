@@ -20,7 +20,7 @@ WINDOWS_RESERVED = {
 
 @dataclass(slots=True)
 class TemplatePart:
-    kind: str  
+    kind: str
     value: str
 
 
@@ -44,8 +44,8 @@ def parse_template_brackets(template: str) -> list[TemplatePart]:
             while i < len(template) and depth:
                 ch = template[i]
                 if quote:
-                    
-                    
+
+
                     if ch == quote:
                         quote = ''
                     i += 1
@@ -201,7 +201,7 @@ def evaluate_identifier(entry: LibraryEntry, name: str, attrs: dict[str, str] | 
         else:
             creators = entry.creators
         raw = _format_creators(creators, attrs, entry.language)
-        
+
         attrs = {k: v for k, v in attrs.items() if k not in _CREATOR_ATTRS}
     elif lowered in {'authorscount', 'editorscount', 'creatorscount'}:
         if lowered == 'authorscount':
@@ -247,8 +247,8 @@ def get_valid_file_name(value: str) -> str:
 
 
 def _parse_identifier(expr: str) -> tuple[str, dict[str, str]]:
-    
-    
+
+
     text = str(expr or '').strip()
     if not text:
         return '', {}
@@ -270,7 +270,7 @@ def _parse_string_literal(statement: str) -> str | None:
     if len(text) < 2 or text[0] not in {'"', "'"}:
         return None
     quote = text[0]
-    
+
     end = text.find(quote, 1)
     if end != len(text) - 1:
         return None
@@ -278,7 +278,7 @@ def _parse_string_literal(statement: str) -> str | None:
 
 
 def _regex_flags(regex_opts: str | None) -> tuple[int, bool]:
-    
+
     opts = str(regex_opts if regex_opts is not None else 'i')
     flags = 0
     if 'i' in opts:
@@ -291,7 +291,7 @@ def _regex_flags(regex_opts: str | None) -> tuple[int, bool]:
 
 
 def _js_replacement_to_python(value: str) -> str:
-    
+
     token = '\x00WORKKNACKS_DOLLAR\x00'
     text = str(value or '').replace('$$', token)
     text = re.sub(r'\$(\d+)', lambda m: rf'\g<{m.group(1)}>', text)
@@ -314,9 +314,7 @@ def _apply_common(value: str, attrs: dict[str, str]) -> str:
         except (TypeError, ValueError):
             pass
 
-    
-    
-    
+
     if 'truncate' in attrs:
         try:
             result = result[:max(0, int(attrs['truncate']))]
@@ -394,8 +392,8 @@ def _format_creators(creators: list[Creator], attrs: dict[str, str], language: s
             pass
     values = [_transform_name(creator, attrs) for creator in selected]
     values = [v for v in values if v]
-    
-    
+
+
     return attrs.get('join', ', ').join(values)
 
 

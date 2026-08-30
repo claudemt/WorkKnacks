@@ -17,7 +17,7 @@ def _safe_lang(value: str) -> str:
 
 @dataclass(frozen=True, slots=True)
 class ArtifactLayout:
-    
+
 
     source: Path
 

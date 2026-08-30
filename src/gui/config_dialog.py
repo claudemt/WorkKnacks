@@ -37,14 +37,14 @@ PROVIDER_NAME_TO_ID = {name: provider_id for provider_id, name in TRANSLATION_PR
 
 
 class ConfigDialog(tk.Toplevel):
-    
+
 
     def __init__(self, parent, on_saved=None):
         super().__init__(parent)
         self.on_saved = on_saved
         self._queue: queue.Queue = queue.Queue()
         self._testing = False
-        self.title('配置')
+        self.title('设置')
         fit_window(self, 660, 560, min_width=560, min_height=500)
         self.transient(parent)
 
@@ -55,6 +55,7 @@ class ConfigDialog(tk.Toplevel):
         self._build_latex(body)
         self._build_translation(body)
         self._build_cache(body)
+        self._build_history(body)
 
         footer = ttk.Frame(body)
         footer.pack(fill=tk.X, pady=(14, 0))
@@ -130,6 +131,12 @@ class ConfigDialog(tk.Toplevel):
             ttk.Checkbutton(row, text=label, variable=var).pack(side=tk.LEFT, padx=(0, 20))
         ttk.Button(row, text='清理', command=self._clean_cache).pack(side=tk.RIGHT)
 
+    def _build_history(self, parent):
+        frame = ttk.LabelFrame(parent, text='实时备份', padding=12)
+        frame.pack(fill=tk.X, pady=(12, 0))
+        self.realtime_var = tk.BooleanVar(value=config.get_int('REALTIME_BACKUP', 1) == 1)
+        ttk.Checkbutton(frame, text='实时创建副本（每次改动本地文件夹前自动保存，供「撤回」使用）', variable=self.realtime_var).pack(anchor=tk.W)
+
     def _clean_cache(self):
         workspace = getattr(self.master, 'workspace', None)
         if not workspace:
@@ -169,6 +176,7 @@ class ConfigDialog(tk.Toplevel):
             'DEFAULT_PROVIDER_TRANSLATE': provider_id,
             'MINERU_TOKEN': self.mineru_token.get().strip(),
             'TEX_BIN_DIR': self.tex_bin_entry.get().strip(),
+            'REALTIME_BACKUP': '1' if self.realtime_var.get() else '0',
         }
         for key, entry in self._entries.items():
             values[key] = entry.get().strip()
@@ -178,12 +186,12 @@ class ConfigDialog(tk.Toplevel):
         try:
             self._save_values()
         except Exception as exc:
-            messagebox.showerror('配置', str(exc), parent=self)
+            messagebox.showerror('设置', str(exc), parent=self)
             return
         if self.on_saved:
             self.on_saved()
         self._refresh_status()
-        messagebox.showinfo('配置', '已保存到 config/.env.local', parent=self)
+        messagebox.showinfo('设置', '已保存到 config/.env.local', parent=self)
 
     def _refresh_status(self):
         try:
@@ -207,7 +215,7 @@ class ConfigDialog(tk.Toplevel):
         try:
             self._save_values()
         except Exception as exc:
-            messagebox.showerror('配置', str(exc), parent=self)
+            messagebox.showerror('设置', str(exc), parent=self)
             return
         self._testing = True
         self.test_btn.configure(state=tk.DISABLED)
@@ -235,6 +243,19 @@ class ConfigDialog(tk.Toplevel):
                 results.append(f'LaTeX: {"可用" if exe else "未找到"} · {exe or "请安装或指定 TEX_BIN_DIR"}')
             except Exception as exc:
                 results.append(f'LaTeX: 检测失败 · {exc}')
+
+            try:
+                import ssl
+                import urllib.request
+                ctx = ssl.create_default_context()
+                url = 'https://api.openalex.org/works?per-page=1&mailto=workknacks@localhost'
+                req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 WorkKnacks/3.0'})
+                with urllib.request.urlopen(req, timeout=8, context=ctx) as r:
+                    results.append(f'OpenAlex: {"可用" if r.status == 200 else "限流"} · HTTP {r.status}')
+            except urllib.error.HTTPError as exc:
+                results.append(f'OpenAlex: 限流/异常 · HTTP {exc.code}')
+            except Exception as exc:
+                results.append(f'OpenAlex: 不可达 · {type(exc).__name__}')
             self._queue.put(results)
 
         threading.Thread(target=work, daemon=True).start()

@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Any, Callable, Iterable
 
 
-
 @dataclass(slots=True)
 class ClaudeCLIOptions:
     model: str = ''
@@ -34,7 +33,7 @@ class ClaudeRun:
 
 
 class ClaudeCLI:
-    
+
 
     def __init__(self, executable: str | None = None):
         self.executable = executable or os.environ.get('CLAUDE_BIN') or shutil.which('claude') or 'claude'
@@ -93,13 +92,10 @@ class ClaudeCLI:
         if options.permission_mode:
             cmd.extend(['--permission-mode', options.permission_mode])
         if options.tools is not None:
-            
+
             cmd.extend(['--tools', ','.join(options.tools)])
-        
-        
-        
-        
-        
+
+
         if options.bare_mode:
             cmd.append('--bare')
         safe_dirs: list[str] = []
@@ -111,10 +107,8 @@ class ClaudeCLI:
             cmd.append('--add-dir')
             cmd.extend(safe_dirs)
         if options.strict_mcp and mcp_config:
-            
-            
-            
-            
+
+
             cmd.extend([
                 '--strict-mcp-config', '--mcp-config', str(mcp_config),
                 '--disallowedTools', 'mcp__*',
@@ -215,10 +209,8 @@ class ClaudeCLI:
 
 
 def _strip_telemetry(text: str) -> str:
-    
-    
-    
-    
+
+
     if not text:
         return text.strip()
     lines = [line for line in text.splitlines() if not line.lstrip().startswith('[claude-code:')]
@@ -226,7 +218,7 @@ def _strip_telemetry(text: str) -> str:
 
 
 def _text_delta(event: dict[str, Any]) -> str:
-    
+
     if event.get('type') == 'stream_event':
         inner = event.get('event') or {}
         if isinstance(inner, dict):
@@ -237,8 +229,8 @@ def _text_delta(event: dict[str, Any]) -> str:
         delta = event.get('delta') or {}
         if isinstance(delta, dict) and isinstance(delta.get('text'), str):
             return delta['text']
-    
-    
+
+
     if event.get('type') in {'assistant_delta', 'text'} and isinstance(event.get('text'), str):
         return event['text']
     return ''

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import difflib
 import json
-import os
 import re
 import shutil
 import threading
@@ -16,7 +15,7 @@ from src.library.operations import ensure_pdf_latex
 
 from .claude_cli import ClaudeCLI
 from .config import AgentConfig
-from .mentions import Mention, ParsedMentions, is_sensitive_project_path, parse_mentions, resolve_project_file
+from .mentions import ParsedMentions, is_sensitive_project_path, parse_mentions, resolve_project_file
 from .session import SessionStore
 from .skills import get_skill, native_root_skills
 
@@ -29,7 +28,6 @@ TEXT_EXTENSIONS = {
 }
 IGNORE_PARTS = {'.workknacks', '.git', '.claude', '.ssh', '.aws', '__pycache__', '.pytest_cache', 'node_modules'}
 MAX_SHADOW_TEXT_BYTES = 8 * 1024 * 1024
-MAX_CONTEXT_CHARS_PER_FILE = 12_000
 TITLE_RE = re.compile(r'\[WORKKNACKS_TITLE\](.*?)\[/WORKKNACKS_TITLE\]', re.I | re.S)
 _RUN_LOCK_GUARD = threading.Lock()
 _RUN_LOCKS: dict[str, threading.RLock] = {}
@@ -48,7 +46,7 @@ def _project_run_lock(root: Path) -> threading.RLock:
 @dataclass(slots=True)
 class PendingChange:
     relative_path: str
-    kind: str  
+    kind: str
     before: bytes | None
     after: bytes | None
 
@@ -87,7 +85,7 @@ class AgentRunResult:
 
 
 class ProjectAgent:
-    
+
 
     def __init__(self, root: str | Path):
         self.root = Path(root).expanduser().resolve()
@@ -100,7 +98,7 @@ class ProjectAgent:
                 max_bytes=int(cache.get('maxBytes') or 536870912),
             )
         except (OSError, ValueError, TypeError):
-            
+
             pass
         self.sessions = SessionStore(self.root)
         self.cli = ClaudeCLI()
@@ -117,9 +115,8 @@ class ProjectAgent:
         automatic: bool = False,
         task_kind: str = '',
     ) -> AgentRunResult:
-        
-        
-        
+
+
         with self._run_lock:
             return self._run_unlocked(
                 message, session_id=session_id,
@@ -149,8 +146,7 @@ class ProjectAgent:
         if info is None:
             raise KeyError(f'未知会话：{session_id}')
 
-        
-        
+
         requested_skills = [*extra_skills, *parsed.values('skill')]
         skills = self._resolve_skills(requested_skills)
         context_notes, context_files = self._prepare_file_context(parsed.values('file'))
@@ -184,8 +180,8 @@ class ProjectAgent:
                 on_text=on_text,
             )
             if run.session_id != session_id:
-                
-                
+
+
                 raise RuntimeError(f'Claude 会话 ID 不一致：{run.session_id}')
             self.sessions.mark_native_started(session_id)
             changes = _collect_changes(self.root, shadow, manifest)
@@ -216,7 +212,7 @@ class ProjectAgent:
         task_kind: str,
         extra_skills: Iterable[str] = (),
     ) -> AgentRunResult:
-        
+
         return self.run(
             message,
             session_id=None,
@@ -229,7 +225,7 @@ class ProjectAgent:
         return self.cli.cancel()
 
     def recompile_changed_latex(self, changes: Iterable[PendingChange]) -> list[str]:
-        
+
         from src.providers.parse.mineru import compile_latex
 
         compiled: list[str] = []
@@ -322,9 +318,8 @@ class ProjectAgent:
         return restored
 
     def _resolve_skills(self, names: Iterable[str]) -> list[str]:
-        
-        
-        
+
+
         result: list[str] = []
         seen = set()
         for name in names:
@@ -443,7 +438,7 @@ def _build_shadow(root: Path, shadow: Path) -> dict[str, bytes]:
         except ValueError:
             pass
         else:
-            
+
             continue
         try:
             rel_path = path.relative_to(root)
@@ -479,7 +474,7 @@ def _collect_changes(root: Path, shadow: Path, manifest: dict[str, bytes]) -> li
         rel_path = path.relative_to(shadow)
         if any(part in IGNORE_PARTS for part in rel_path.parts) or is_sensitive_project_path(rel_path):
             continue
-        
+
         if not _is_text_file(path) or path.stat().st_size > MAX_SHADOW_TEXT_BYTES:
             continue
         after_map[rel_path.as_posix()] = path.read_bytes()
@@ -501,7 +496,7 @@ def _collect_changes(root: Path, shadow: Path, manifest: dict[str, bytes]) -> li
 
 
 def _ensure_pdf_latex(pdf: Path, root: Path) -> Path | None:
-    
+
     try:
         return ensure_pdf_latex(pdf, project_root=root)
     except Exception:
@@ -510,32 +505,6 @@ def _ensure_pdf_latex(pdf: Path, root: Path) -> Path | None:
 
 def _is_text_file(path: Path) -> bool:
     return path.suffix.lower() in TEXT_EXTENSIONS or path.name in {'README', 'LICENSE', 'Makefile'}
-
-
-def _read_excerpt(path: Path) -> str:
-    try:
-        text = path.read_text(encoding='utf-8', errors='replace')
-    except OSError:
-        return ''
-    if len(text) <= MAX_CONTEXT_CHARS_PER_FILE:
-        return text
-    return text[:MAX_CONTEXT_CHARS_PER_FILE] + '\n…（摘录到此，完整文件请用 Read）'
-
-
-def _history_text(history: list[dict]) -> str:
-    chunks = []
-    total = 0
-    for item in history[-10:]:
-        role = item.get('role', 'unknown')
-        content = str(item.get('content') or '')
-        if len(content) > 4000:
-            content = content[:4000] + '…'
-        chunk = f'{role}: {content}'
-        total += len(chunk)
-        if total > 24_000:
-            break
-        chunks.append(chunk)
-    return '\n\n'.join(chunks)
 
 
 def _safe_target(root: Path, relative: str) -> Path:

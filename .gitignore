@@ -35,6 +35,11 @@ config/.env.local
 *.swp
 *.swo
 
+# Tooling / indexes (regenerated on demand)
+.codegraph/
+.codeartsdoer/
+.pytest_cache/
+
 # OS
 Thumbs.db
 Desktop.ini
